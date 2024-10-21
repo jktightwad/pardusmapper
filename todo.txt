@@ -1,7 +1,3 @@
-run file format
 check files for TODO
 
 Script:
-- javascript error when visiting the trade settings
-- free space is also sent wrong: [fs] => NaN
-- import others building import, for trading outposts the script it doesn't send the trade list

@@ -18,7 +18,7 @@ $dbClass = MySqlDB::instance(); // Create an instance of the Database class
 $uni = Request::uni();
 
 if (is_null($uni)) {
-    require_once(templates('lannding'));
+    require_once(templates('landing'));
     exit;
 }
 

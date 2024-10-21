@@ -12,7 +12,7 @@ $db = new MySqlDB;
 // Set Univers Variable and Session Name
 $uni = Request::uni();
 if (is_null($uni)) {
-    require_once(templates('lannding'));
+    require_once(templates('landing'));
     exit;
 }
 
