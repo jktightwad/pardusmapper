@@ -18,14 +18,14 @@ RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LA
 RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LANE|NPR|PEC|PFC|PUC|SPLIT|SPR|UKC|UNR|URC|WPR)/npc/?$ npc.php?uni=$1&cluster=$2 [B,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LANE|NPR|PEC|PFC|PUC|SPLIT|SPR|UKC|UNR|URC|WPR)/?$ index.php?uni=$1&cluster=$2 [B,L]
 ## New Sector Listing Grouping
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/npc/?$ npc.php?uni=$1&sector=$2 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/mission/?$ mission.php?uni=$1&sector=$2 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/([^/]+)/?$ presources.php?uni=$1&sector=$2&pilot=$3 [L,NE]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/npc/?$ npc.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/mission/?$ mission.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/([^/]+)/?$ presources.php?uni=$1&sector=$2&pilot=$3 [B,L]
 ## New Building Specific Listing Group
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/mission/?$ mission.php?uni=$1&sector=$2&x1=$3&y1=$4 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/flyclose/?$ game.php?uni=$1&sector=$2&x2=$3&y2=$4 [L,NE]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/mission/?$ mission.php?uni=$1&sector=$2&x1=$3&y1=$4 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/flyclose/?$ game.php?uni=$1&sector=$2&x2=$3&y2=$4 [B,L]
 ## Mapping Listing Grouping
 RewriteRule ^(Orion|Artemis|Pegasus)/?$ index.php?uni=$1 [B,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/index.php?$ index.php?uni=$1 [B,L]
@@ -37,8 +37,8 @@ RewriteRule ^(Orion|Artemis|Pegasus)/logout.php?$ logout.php?uni=$1 [B,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/options.php?$ options.php?uni=$1 [B,L]
 RewriteCond %{REQUEST_METHOD} GET
 RewriteRule ^(Orion|Artemis|Pegasus)/include/(.*)$ include/$2?uni=$1 [B,QSA,L]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/?$ game.php?uni=$1&sector=$2&x1=$3&y1=$4 [L,NE]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/?$ game.php?uni=$1&sector=$2 [L,NE]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/?$ game.php?uni=$1&sector=$2&x1=$3&y1=$4 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/?$ game.php?uni=$1&sector=$2 [L]
 
 # BEGIN cPanel-generated php ini directives, do not edit
 # Manual editing of this file may result in unexpected behavior.
