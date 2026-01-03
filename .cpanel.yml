@@ -2,6 +2,4 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home2/ifcpaute/pardusmapper/
-    - /bin/cp -R app $DEPLOYPATH
-    - /bin/cp -R resources $DEPLOYPATH
-    - /bin/cp *.php $DEPLOYPATH
+    - /bin/cp -a . $DEPLOYPATH
