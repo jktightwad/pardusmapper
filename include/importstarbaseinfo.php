@@ -76,7 +76,7 @@ if ($b) {
     }
 } else {
     // Building not in DB
-    DB::building_add(universe: $uni, image: $image, id: $loc, sb: 0);
+    DB::building_add(universe: $uni, image: $image, id: $loc, sb: 1);
 
     // After we add a buildimg, load the object
     $b = DB::building(id: $loc, universe: $uni);
