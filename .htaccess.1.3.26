@@ -1,0 +1,60 @@
+#ErrorDocument 404 https://pardusmapper.com/404page.html
+
+
+Options +FollowSymlinks
+
+
+RewriteEngine on
+RewriteBase /
+## Complete Listings Grouping
+RewriteRule ^(Orion|Artemis|Pegasus)/mission/?$ mission.php?uni=$1 [B,QSA,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/npc/?$ npc.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/info/?$ info/information.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/gems/?$ index.php?uni=$1&gems=1 [B,L]
+RewriteCond %{REQUEST_METHOD} GET
+RewriteRule ^(Orion|Artemis|Pegasus)/download/?$ Download/download.php?uni=$1 [B,QSA,L]
+## Cluster Listings Grouping
+RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LANE|NPR|PEC|PFC|PUC|SPLIT|SPR|UKC|UNR|URC|WPR)/mission/?$ mission.php?uni=$1&cluster=$2 [B,QSA,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LANE|NPR|PEC|PFC|PUC|SPLIT|SPR|UKC|UNR|URC|WPR)/npc/?$ npc.php?uni=$1&cluster=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/(CORE|PC|EKC|EPR|ESC|EWS|FHC|FRC|FSH|GAP|LANE|NPR|PEC|PFC|PUC|SPLIT|SPR|UKC|UNR|URC|WPR)/?$ index.php?uni=$1&cluster=$2 [B,L]
+## New Sector Listing Grouping
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/npc/?$ npc.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/mission/?$ mission.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/?$ resources.php?uni=$1&sector=$2 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/resources/([^/]+)/?$ presources.php?uni=$1&sector=$2&pilot=$3 [B,L]
+## New Building Specific Listing Group
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/mission/?$ mission.php?uni=$1&sector=$2&x1=$3&y1=$4 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/flyclose/?$ game.php?uni=$1&sector=$2&x2=$3&y2=$4 [B,L]
+## Mapping Listing Grouping
+RewriteRule ^(Orion|Artemis|Pegasus)/?$ index.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/index.php?$ index.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/signup.php?$ signup.php?uni=$1 [B,L]
+RewriteCond %{REQUEST_METHOD} GET
+RewriteRule ^(Orion|Artemis|Pegasus)/login.php?$ login.php?uni=$1 [B,QSA,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/login.php?$ login.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/logout.php?$ logout.php?uni=$1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/options.php?$ options.php?uni=$1 [B,L]
+RewriteCond %{REQUEST_METHOD} GET
+RewriteRule ^(Orion|Artemis|Pegasus)/include/(.*)$ include/$2?uni=$1 [B,QSA,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/?$ game.php?uni=$1&sector=$2&x1=$3&y1=$4 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/?$ game.php?uni=$1&sector=$2 [L]
+
+# BEGIN cPanel-generated php ini directives, do not edit
+# Manual editing of this file may result in unexpected behavior.
+# To make changes to this file, use the cPanel MultiPHP INI Editor (Home >> Software >> MultiPHP INI Editor)
+# For more information, read our documentation (https://go.cpanel.net/EA4ModifyINI)
+<IfModule php8_module>
+
+</IfModule>
+<IfModule lsapi_module>
+
+</IfModule>
+# END cPanel-generated php ini directives, do not edit
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the “ea-php82” package as the default “PHP” programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php82___lsphp .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit
