@@ -38,7 +38,7 @@ RewriteRule ^(Orion|Artemis|Pegasus)/options.php?$ options.php?uni=$1 [B,L]
 RewriteCond %{REQUEST_METHOD} GET
 RewriteRule ^(Orion|Artemis|Pegasus)/include/(.*)$ include/$2?uni=$1 [B,QSA,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/([0-9]{1,2})/([0-9]{1,2})/?$ game.php?uni=$1&sector=$2&x1=$3&y1=$4 [B,L]
-RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/?$ game.php?uni=$1&sector=$2 [L]
+RewriteRule ^(Orion|Artemis|Pegasus)/([^/]+)/?$ game.php?uni=$1&sector=$2 [B,L]
 
 # BEGIN cPanel-generated php ini directives, do not edit
 # Manual editing of this file may result in unexpected behavior.
