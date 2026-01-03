@@ -130,7 +130,8 @@ function getDetailedInfo(uri,uni,id) {
 					el.style.position = 'fixed'; 
 				}
 			} else if (el.getAttribute('name') == "resources") {
-				el.style.left = document.getElementById("resource_body").clientWidth + 120 + "px";
+				el.style.removeProperty("left"); // Clear any previous left positioning
+				el.style.right = "150px";        // Align it to the right side of the viewport
 			}
 		}
 	}
