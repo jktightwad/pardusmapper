@@ -5,9 +5,11 @@ declare(strict_types=1);
 /** @var string $css */
 /** @var string $game_css */
 /** @var string $cluster_css */
+/** @var string $img_url */
 /** @var string $uni */
 /** @var string $sector */
 /** @var string $cluster */
+/** @var string $sector */
 /** @var string $title */
 /** @var bool $shownpc */
 /** @var int $id */
@@ -24,23 +26,6 @@ declare(strict_types=1);
 		<link rel="stylesheet" type="text/css" href="<?php echo $css; ?>" />
 		<link rel="stylesheet" type="text/css" href="<?php echo $game_css; ?>" />
 		<link rel="stylesheet" type="text/css" href="<?php echo $cluster_css; ?>" />
-		<style type="text/css">
-			.npc-count-badge {
-				position: absolute;
-				top: -2px;
-				right: -2px;
-				background: rgba(255, 0, 0, 0.85);
-				color: white;
-				font-size: 9px;
-				font-weight: bold;
-				padding: 1px 3px;
-				border-radius: 4px;
-				border: 1px solid white;
-				z-index: 10;
-				pointer-events: none;
-			}
-			.history-npc { opacity: 0.5; filter: grayscale(50%); }
-		</style>
 		<script type="text/javascript" src="<?php echo $base_url; ?>/resources/main.js"></script>
 		<script type="text/javascript">
 			//<![CDATA[
@@ -67,18 +52,23 @@ declare(strict_types=1);
 					echo 'loadDetail(\'' . $base_url . '\',\'' . $uni . '\',' . $loc . ');';
 				}
 			?>
+			
 				updateMap();
+				//setTimeout('updateMap()',60000);
 			}
 			function updateMap() {
 				var url = <?php echo '"' . $base_url . '"'; ?> + "/info/map.php";
 				var mode = getCheckedValue(document.getElementById('rf').mode);
 				var grid = getCheckedValue(document.getElementById('gl').mode);
 				var whole = getCheckedValue(document.getElementById('wh').mode);
-				var history = document.getElementById('hist').checked ? 1 : 0;
-				var params = "uni=" + <?php echo '"' . $uni . '"'; ?> + "&sector=" + <?php echo '"' . $sector . '"'; ?> + "&img_url=" + <?php echo '"' . $img_url . '"'; ?> + "&shownpc=" + <?php echo '"' . $shownpc . '"'; ?> + "&mode=" + mode + "&grid=" + grid + "&whole=" + whole + "&history=" + history;
+				var params = "uni=" + <?php echo '"' . $uni . '"'; ?> + "&sector=" + <?php echo '"' . $sector . '"'; ?> + "&img_url=" + <?php echo '"' . $img_url . '"'; ?> + "&shownpc=" + <?php echo '"' . $shownpc . '"'; ?> + "&mode=" + mode + "&grid=" + grid + "&whole=" + whole;
 				<?php if (!is_null($id)) { echo 'params += "&loc=" + \'' . $id . '\''; } ?>
 				maphttp.open("POST",url,true);
 				maphttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+				//maphttp.setRequestHeader("Content-length", params.length);
+				maphttp.setRequestHeader("Pragma", "cache");
+				//maphttp.setRequestHeader("Connection" , "close");
+				
 				maphttp.onreadystatechange = function () {
 					if (maphttp.readyState == 4) {
 						var el = document.getElementById("sectorMapDiv");
@@ -95,6 +85,20 @@ declare(strict_types=1);
 			window.onload = loadMap;
 			//]]>
 		</script>
+		<script type="text/javascript">
+
+			var _gaq = _gaq || [];
+			_gaq.push(['_setAccount', 'UA-15475436-5']);
+			_gaq.push(['_setDomainName', '.mhwva.net']);
+			_gaq.push(['_trackPageview']);
+	
+			(function() {
+				var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+				ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+				var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+			})();
+
+		</script>	
 	</head>
 	<body>
 		<div id="header_side"><?php require_once(templates('header_side')); ?></div>
@@ -109,25 +113,23 @@ declare(strict_types=1);
                 ?>
             </div>
 			<div id="mapSelection">
-				<form id="rf" action="" style="display:inline;">
+				<form id="rf" action="">
 					<input type="radio" onclick="updateMap()" name="mode" value="all" checked />All
 					<input type="radio" onclick="updateMap()" name="mode" value="buildings" />Buildings
 					<input type="radio" onclick="updateMap()" name="mode" value="npcs" />NPCs
 					<input type="radio" onclick="updateMap()" name="mode" value="none" />None
 				</form>
-				<form id="gl" action="" style="display:inline;">
+				<form id="gl" action="">
 					<input type="radio" onclick="updateMap()" name="mode" value="1" checked />Grid Lines
 					<input type="radio" onclick="updateMap()" name="mode" value="0" />No Grid Lines
 				</form>
-				<form id="history_toggle" action="" style="display:inline; margin-left: 10px; border-left: 1px solid #666; padding-left: 10px;">
-					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> Show Serpent/Shadow History
-				</form>
 				<?php
 				if ($security==100){
-					echo '<form id="wh" action="" style="display:inline;"><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH<input type="radio" onclick="updateMap()" name="mode" value="1" />Remove WH</form>';
+					echo '<form id="wh" action=""><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH<input type="radio" onclick="updateMap()" name="mode" value="1" />Remove WH</form>';
 				} else {
-					echo '<form id="wh" action="" style="display:inline;"><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH</form>';
+					echo '<form id="wh" action=""><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH</form>';
 				}
+					
 				?>
 			</div>
 			<div id="sectorMapDiv"></div>
