@@ -155,8 +155,7 @@ for ($y = 0;$y < $s->rows;$y++) {
                     if (!empty($map->today) && !empty($map->fg_updated)) {
                         $fg_diff['sec'] = strtotime($map->today) - strtotime($map->fg_updated);
                     } else {
-                        echo "Invalid or missing date values.";
-                        $fg_diff['sec'] = 0;
+                        $fg_diff['sec'] = 0; // no update time recorded for this building
                     }
                     $fg_diff['days'] = $fg_diff['sec']/60/60/24;
                     $fg_diff['hours'] = ($fg_diff['days'] - floor($fg_diff['days'])) * 24;
