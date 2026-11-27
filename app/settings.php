@@ -17,6 +17,26 @@ use Pardusmapper\CORS;
 Environment::load();
 Settings::init();
 
+// Keep pilots logged in. PHP's defaults end a login after 24 minutes without a page view (and on
+// shared hosting the session folder is cleaned on that schedule), and the login cookie only lasts
+// until the browser closes. Keep the site's sessions in their own folder outside the website, for
+// 30 days. Every page loads this file before session_start(), so this covers the whole site.
+const SESSION_DAYS = 30;
+$sessionDir = dirname(ROOT) . '/pardusmapper_sessions';
+if ((is_dir($sessionDir) || @mkdir($sessionDir, 0700, true)) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+    // PHP only removes expired sessions from this folder itself, now and then
+    ini_set('session.gc_probability', '1');
+    ini_set('session.gc_divisor', '1000');
+}
+ini_set('session.gc_maxlifetime', (string) (SESSION_DAYS * 86400));
+session_set_cookie_params([
+    'lifetime' => SESSION_DAYS * 86400,
+    'path' => '/',
+    'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+    'httponly' => true,
+]);
+
 $testing = Settings::$TESTING;
 $debug = Settings::$DEBUG;
 
