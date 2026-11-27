@@ -9,14 +9,17 @@ require_once('app/settings.php');
  * Views (all active contributors only, same 48h rule as NPC List):
  *   /{Uni}/npcstats                          overview of every tracked NPC
  *   /{Uni}/npcstats?npc=feral_serpent        one NPC: its unique IDs + where it has been seen (by name)
- *   /{Uni}/npcstats?npc=...&u=Orion&nid=123  one NPC ID: its trail, sector by sector, in date order
+ *   /{Uni}/npcstats?npc=feral_serpent&flight=1[&u=Orion]  Feral Serpent flight paths on the universe map
+ *   /{Uni}/npcstats?npc=feral_serpent&u=Orion&nid=123     one serpent's flight path
  */
 
 use Pardusmapper\Core\ApiResponse;
 use Pardusmapper\DB;
+use Pardusmapper\FlightPaths;
 use Pardusmapper\NPC;
 use Pardusmapper\Request;
 use Pardusmapper\Session;
+use Pardusmapper\UniverseMap;
 
 $uni = Request::uni();
 http_response(is_null($uni), ApiResponse::OK, sprintf('uni query parameter is required or invalid: %s', $uni ?? 'null'));
@@ -42,7 +45,9 @@ $nid = Request::pint(key: 'nid');
 
 $view = 'overview';
 if (!is_null($slug)) {
-    $view = (!is_null($trailUni) && !is_null($nid)) ? 'trail' : 'npc';
+    // only the Feral Serpent moves between sectors, so only it has a flight-path view
+    $wantsFlight = Request::pbool(key: 'flight') || (!is_null($trailUni) && !is_null($nid));
+    $view = ($slug === FlightPaths::SLUG && $wantsFlight) ? 'flight' : 'npc';
 }
 
 // keep every value the template needs in one place
@@ -125,35 +130,11 @@ if ($view === 'npc') {
     $stats['dims'] = DB::sector_dims(array_keys($sectors));
 }
 
-if ($view === 'trail') {
-    // Consecutive records in the same sector become one step of the trail.
-    // Repeats on the same tile under 2 hours apart (flickering in and out of view) are skipped.
-    $steps = [];
-    foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'], universe: $trailUni, nid: $nid)) as $r) {
-        if (!$r->counted) {
-            if ((int) $r->active === 1 && count($steps)) {
-                // a skipped repeat can still be the live record: mark its tile as "there now"
-                $last = count($steps) - 1;
-                $steps[$last]['active'] = 1;
-                foreach ($steps[$last]['points'] as &$pt) {
-                    if ($pt['x'] === (int) $r->x && $pt['y'] === (int) $r->y) { $pt['active'] = 1; }
-                }
-                unset($pt);
-            }
-            continue;
-        }
-        $last = count($steps) - 1;
-        if ($last < 0 || $steps[$last]['sector'] !== $r->sector) {
-            $steps[] = ['sector' => $r->sector, 'from' => $r->spotted, 'to' => $r->spotted, 'points' => [], 'active' => 0];
-            $last++;
-        }
-        $steps[$last]['points'][] = ['x' => (int) $r->x, 'y' => (int) $r->y, 'spotted' => $r->spotted, 'active' => (int) $r->active];
-        $steps[$last]['to'] = $r->spotted;
-        $steps[$last]['active'] = max($steps[$last]['active'], (int) $r->active);
-    }
-
-    $stats['steps'] = $steps;
-    $stats['dims'] = DB::sector_dims(array_column($steps, 'sector'));
+if ($view === 'flight') {
+    // Feral Serpent flight paths on the universe map: all serpents (optionally one universe),
+    // or one serpent ID (u + nid). See FlightPaths for how sightings become moves.
+    $stats['flight'] = FlightPaths::build(universe: $trailUni, nid: is_null($trailUni) ? null : $nid);
+    $stats['layout'] = UniverseMap::layout();
 }
 
 $title = 'Rare NPC Stats';

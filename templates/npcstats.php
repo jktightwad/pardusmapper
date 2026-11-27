@@ -7,6 +7,8 @@ declare(strict_types=1);
 /** @var string $title */
 /** @var array $stats */
 
+use Pardusmapper\Core\Settings;
+use Pardusmapper\FlightPaths;
 use Pardusmapper\TileMap;
 
 $h = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES);
@@ -103,6 +105,18 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg .mm-mark rect { fill: rgba(255,225,77,0.55); stroke: #ffe14d; stroke-width: 2; }
 			#stats svg .mm-mark text { fill: #000; font: bold 9px sans-serif; text-anchor: middle; }
 			#stats svg .mm-active rect { fill: rgba(0,229,255,0.6); stroke: #00e5ff; }
+			/* Feral Serpent flight map (templates/flightmap.php) */
+			#stats svg.flightmap { display: block; border: 1px solid #334649; margin: 6px 0 14px; }
+			#stats svg .fm-link { stroke: #2a4650; stroke-width: 1.5; }
+			#stats svg .fm-sector rect { fill: #13232b; stroke: #2a4650; stroke-width: 1; }
+			#stats svg .fm-sector text { fill: #5d7680; text-anchor: middle; font-family: sans-serif; }
+			#stats svg .fm-visited rect { fill: #1d3b48; stroke: #81F0F1; }
+			#stats svg .fm-visited text { fill: #e8f4f4; font-weight: bold; }
+			#stats svg .fm-live rect { stroke: #00e5ff; stroke-width: 3; }
+			#stats svg .fm-teleport rect { stroke: #b06cf0; stroke-width: 2.5; stroke-dasharray: 6 3; }
+			#stats svg .fm-flight line { stroke: #ff8c1a; stroke-linecap: round; opacity: 0.85; }
+			#stats svg .fm-jump path { stroke: #b06cf0; fill: none; stroke-dasharray: 8 5; opacity: 0.85; }
+			#stats svg .fm-move:hover line, #stats svg .fm-move:hover path { opacity: 1; stroke: #fff; }
 			#stats .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: #A1A1AF; margin: 4px 0 8px; }
 			#stats .legend span.sw { display: inline-block; width: 11px; height: 11px; margin-right: 4px; vertical-align: -1px; border: 1px solid #334649; }
 		</style>
@@ -116,7 +130,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 				<div class="crumbs">
 					<a href="<?= $h($statsUrl) ?>">All tracked NPCs</a>
 					<?php if ($stats['slug']) { ?> &raquo; <a href="<?= $h($statsUrl . '?npc=' . $stats['slug']) ?>"><?= $h($stats['groups'][$stats['slug']]['name']) ?></a><?php } ?>
-					<?php if ($stats['view'] === 'trail') { ?> &raquo; <?= $h($stats['u']) ?> ID <?= $h($stats['nid']) ?><?php } ?>
+					<?php if ($stats['view'] === 'flight') { ?> &raquo; Flight paths<?= $stats['u'] ? ' &raquo; ' . $h($stats['u']) : '' ?><?= ($stats['u'] && $stats['nid']) ? ' ID ' . $h($stats['nid']) : '' ?><?php } ?>
 				</div>
 
 <?php if ($stats['view'] === 'overview') { ?>
@@ -141,12 +155,18 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 					All times are when the NPC was first seen on a tile, shown in your local time. "Seen now" is how many have not yet been reported gone.</p>
 
 <?php } elseif ($stats['view'] === 'npc') { ?>
+				<?php $isSerpent = $stats['slug'] === FlightPaths::SLUG; ?>
+				<?php if ($isSerpent) { ?>
+					<p class="note"><b>Flight paths on the universe map:</b>
+						<a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1') ?>">all universes</a>
+						<?php foreach (Settings::UNIVERSE as $fu) { ?> | <a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1&u=' . $fu) ?>"><?= $h($fu) ?></a><?php } ?></p>
+				<?php } ?>
 				<h3>Unique NPC IDs</h3>
 				<?php if (count($stats['ids']) === 0) { ?>
 					<p class="note">No sightings with an NPC ID yet.</p>
 				<?php } else { ?>
 				<table class="stats">
-					<tr><th>Universe</th><th>NPC ID</th><th>Sightings</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><th>Trail</th></tr>
+					<tr><th>Universe</th><th>NPC ID</th><th>Sightings</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><?= $isSerpent ? '<th>Flight path</th>' : '' ?></tr>
 					<?php foreach ($stats['ids'] as $id) { ?>
 					<tr>
 						<td><?= $h($id['uni']) ?></td>
@@ -156,7 +176,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 						<td class="l"><?= $h($id['where']) ?><?= $id['active'] ? ' <span class="live">(seen now)</span>' : '' ?></td>
 						<td><?= $when($id['first']) ?></td>
 						<td><?= $when($id['last']) ?></td>
-						<td><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&u=' . $id['uni'] . '&nid=' . $id['nid']) ?>">View trail</a></td>
+						<?php if ($isSerpent) { ?><td><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&u=' . $id['uni'] . '&nid=' . $id['nid']) ?>">Flight path</a></td><?php } ?>
 					</tr>
 					<?php } ?>
 				</table>
@@ -193,32 +213,8 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 				<?php } ?>
 				</div>
 
-<?php } else { /* trail */ ?>
-				<?php if (count($stats['steps']) === 0) { ?>
-					<p class="note">No sightings found for this NPC ID.</p>
-				<?php } else { ?>
-				<p class="note">Sectors in the order this NPC was seen in them, zoomed to the area it moved through. Squares are numbered in the order it reached them (later stops are brighter);
-					hover one for when it was first seen there, in your local time. Cyan means it is there now.</p>
-				<?= $legend ?>
-				<div class="cards">
-				<?php foreach ($stats['steps'] as $i => $step) {
-					$count = count($step['points']);
-					$marks = [];
-					foreach ($step['points'] as $p => $pt) {
-						$marks[] = ['x' => $pt['x'], 'y' => $pt['y'], 'weight' => $count > 1 ? $p / ($count - 1) : 1, 'active' => $pt['active'], 'utc' => $pt['spotted'], 'n' => $p + 1,
-							'label' => sprintf('#%d [%d,%d] first seen %s%s', $p + 1, $pt['x'], $pt['y'], $utcText($pt['spotted']), $pt['active'] ? ', still there' : '')];
-					}
-				?>
-					<?php if ($i > 0) { ?><span class="arrow">&rarr;</span><?php } ?>
-					<div class="card">
-						<div class="sname"><?= $i + 1 ?>. <a href="<?= $h($sectorUrl($stats['u'], $step['sector'])) ?>"><?= $h($step['sector']) ?></a></div>
-						<?= $sectorSvg($stats['u'], $step['sector'], $stats['dims'][$step['sector']] ?? null, $marks) ?>
-						<?= $count ?> stop<?= $count === 1 ? '' : 's' ?><?= $step['active'] ? ' <span class="live">here now</span>' : '' ?><br />
-						<?= $when($step['from']) ?><?= $step['to'] !== $step['from'] ? ' to ' . $when($step['to']) : '' ?>
-					</div>
-				<?php } ?>
-				</div>
-				<?php } ?>
+<?php } else { /* flight */ ?>
+				<?php require templates('flightmap'); ?>
 <?php } ?>
 			</div>
 			</center>

@@ -854,6 +854,34 @@ class DB
     }
 
     /**
+     * Sector-to-sector wormhole links recorded on the Orion map (the universes share their layout).
+     * Scanning the map table is not cheap, so the result is cached in the system temp folder for a day.
+     *
+     * @return array list of [sector, target sector]
+     */
+    public static function wormhole_links(): array
+    {
+        $cache = sys_get_temp_dir() . '/pardusmapper_wormhole_links.json';
+        if (is_file($cache) && (time() - (int) filemtime($cache)) < 86400) {
+            $links = json_decode((string) file_get_contents($cache), true);
+            if (is_array($links)) {
+                return $links;
+            }
+        }
+
+        $db = MySqlDB::instance();
+        $db->execute("SELECT DISTINCT sector, wormhole FROM Orion_Maps WHERE wormhole IS NOT NULL AND wormhole <> '' AND sector IS NOT NULL");
+
+        $links = [];
+        while ($row = $db->fetchObject()) {
+            $links[] = [(string) $row->sector, (string) $row->wormhole];
+        }
+        @file_put_contents($cache, json_encode($links));
+
+        return $links;
+    }
+
+    /**
      * Background and foreground image of every mapped tile in part of a sector (uses the Sector index).
      *
      * @return array list of objects: x, y, bg, fg
