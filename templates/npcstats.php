@@ -116,6 +116,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg .fm-live rect { stroke: #00e5ff; stroke-width: 3; }
 			#stats svg .fm-teleport rect { stroke: #b06cf0; stroke-width: 2.5; stroke-dasharray: 6 3; }
 			#stats svg .fm-flight line { stroke: #ff8c1a; stroke-linecap: round; opacity: 0.85; }
+			#stats svg .fm-across line { stroke-dasharray: 6 4; stroke-linecap: butt; }
 			#stats svg .fm-jump path { stroke: #b06cf0; fill: none; stroke-dasharray: 8 5; opacity: 0.85; }
 			#stats svg .fm-move:hover line, #stats svg .fm-move:hover path { opacity: 1; stroke: #fff; }
 			/* Compare universes */

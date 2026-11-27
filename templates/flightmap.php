@@ -18,8 +18,6 @@ use Pardusmapper\UniverseMap;
 $flight = $stats['flight'];
 $pos = $stats['layout']['sectors'];
 $mapUni = $stats['u'] ?? $uni; // sector links open in this universe
-$stageNames = ['Hatchling', 'Young', 'Grown', 'Mature'];
-$stageColours = ['#9be564', '#e5d364', '#e5903c', '#d63c3c'];
 $base = $statsUrl . '?npc=' . FlightPaths::SLUG . '&flight=1';
 
 // Sectors that appear in the data and on the map
@@ -52,15 +50,18 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     $flights = 0; $jumpsSeen = 0;
     foreach ($flight['moves'] as $m) { if ($m['type'] === 'flight') { $flights += $m['count']; } else { $jumpsSeen += $m['count']; } }
 ?>
-				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings in <b><?= $flight['paths'] ?></b> separate path<?= $flight['paths'] === 1 ? '' : 's' ?>:
-					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors and <b><?= $jumpsSeen ?></b> jump<?= $jumpsSeen === 1 ? '' : 's' ?>.
-					Arrows go from where it was seen to where it was seen next; thicker arrows were seen more often, and each direction has its own arrow.
-					A <b>jump</b> (dashed purple) goes between sectors with no wormhole link: a teleport, or a route nobody saw it take.
+				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>:
+					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors<?= $flight['linked'] ? ' (' . $flight['linked'] . ' of them joined across universes)' : '' ?> and <b><?= $jumpsSeen ?></b> jump<?= $jumpsSeen === 1 ? '' : 's' ?>.</p>
+				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
+					An arrow joins two flybys in different sectors only if they were at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes apart; after a longer gap it could have gone anywhere, so nothing is drawn.
+					Each direction has its own arrow, and thicker arrows were seen more often.
+					A <b>jump</b> (dashed purple) is a move to a sector with no wormhole link in that short time: a teleport, or a sector nobody saw it cross.
+					<?php if (is_null($stats['u'])) { ?>Each universe has its own serpent, but they seem to fly the same routes: a flyby with no move leading to it in its own universe is joined to one in a neighbouring sector of another universe shortly before (<b>dashed orange</b>).<?php } ?>
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
-					<span><span class="sw" style="background:#b06cf0"></span>Jump (teleport or unseen route)</span>
-					<?php foreach ($stageNames as $i => $n) { ?><span><span class="sw" style="background:<?= $stageColours[$i] ?>;border-radius:6px"></span><?= $h($n) ?></span><?php } ?>
+					<?php if (is_null($stats['u'])) { ?><span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 4px,transparent 4px 7px)"></span>Flight joined across universes</span><?php } ?>
+					<span><span class="sw" style="background:#b06cf0"></span>Jump (teleport or unseen sector)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
 					<span><span class="sw" style="border:2px dashed #b06cf0"></span>Known teleport sector</span>
 				</div>
@@ -84,23 +85,15 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         $class = 'fm-sector' . ($sec ? ' fm-visited' : '') . (($sec['active'] ?? false) ? ' fm-live' : '') . (in_array($name, FlightPaths::KNOWN_TELEPORTS, true) ? ' fm-teleport' : '');
         $title = $name;
         if ($sec) {
-            $st = [];
-            foreach ($sec['stages'] as $i => $n) { $st[] = $stageNames[$i] . ' ' . $n; }
-            $title .= sprintf(': %d sighting%s (%s), last seen %s%s', $sec['sightings'], $sec['sightings'] === 1 ? '' : 's', implode(', ', $st), $utcText((string) $sec['last']), $sec['active'] ? ', there now' : '');
+            $byUni = [];
+            foreach (Settings::UNIVERSE as $u) { if (isset($sec['unis'][$u])) { $byUni[] = $u . ' ' . $sec['unis'][$u]; } }
+            $title .= sprintf(': %d flyby%s (%s), last seen %s%s', $sec['flybys'], $sec['flybys'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $sec['last']), $sec['active'] ? ', there now' : '');
         }
         if (in_array($name, FlightPaths::KNOWN_TELEPORTS, true)) { $title .= ' (known teleport sector)'; }
         printf('<a href="%s"><g class="%s"><title%s>%s</title>', $h($sectorUrl($mapUni, $name)), $class, $sec ? $utcAttr((string) $sec['last']) : '', $h($title));
         printf('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="4"/>', $p['x'] - $w / 2, $p['y'] - $hh / 2, $w, $hh);
         $font = max(7, min($hh * 0.3, $w * 0.16));
-        printf('<text x="%.1f" y="%.1f" font-size="%.1f">%s</text>', $p['x'], $p['y'] + ($sec ? -$hh * 0.05 : $font * 0.35), $font, $h($name));
-        if ($sec) {
-            ksort($sec['stages']);
-            $n = count($sec['stages']); $r = max(2.5, $hh * 0.08); $i = 0;
-            foreach (array_keys($sec['stages']) as $stage) {
-                printf('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"/>', $p['x'] + ($i - ($n - 1) / 2) * $r * 2.6, $p['y'] + $hh * 0.28, $r, $stageColours[$stage]);
-                $i++;
-            }
-        }
+        printf('<text x="%.1f" y="%.1f" font-size="%.1f">%s</text>', $p['x'], $p['y'] + $font * 0.35, $font, $h($name));
         echo '</g></a>';
     }
 
@@ -122,12 +115,15 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 
         $byUni = [];
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
-        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
-            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']));
+        $label = sprintf('%s → %s (%s): seen %d time%s (%s)%s, last %s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
+            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni),
+            $m['across'] ? sprintf('; %d joined across universes', $m['across']) : '', $utcText((string) $m['last']));
 
         if ($m['type'] === 'flight') {
-            printf('<g class="fm-move fm-flight"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
-                $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
+            // only ever joined across universes: dashed, so it reads as less certain
+            $acrossOnly = $m['across'] === $m['count'];
+            printf('<g class="fm-move fm-flight%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
+                $acrossOnly ? ' fm-across' : '', $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
         } else {
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
