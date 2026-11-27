@@ -112,9 +112,6 @@ declare(strict_types=1);
 			// to the right edge of the window. The box starts just right of the menu, and if a wide sector
 			// (e.g. Pardus) would run underneath the minimap, the box stops at the minimap's left edge and
 			// the map scrolls inside it (both ways, so the scrollbars stay on screen).
-			// Pardus Core sectors, and any sector too wide to fit beside the minimap, are drawn at 70% size.
-			var PM_MAP_SCALE = 0.7;
-			var PM_SHRINK_CLUSTER = <?php echo json_encode(($code ?? '') === 'CORE'); ?>;
 			function fitMapBesideMinimap() {
 				var el = document.getElementById("sectorMapDiv");
 				var table = document.getElementById("sectorTableMap");
@@ -127,7 +124,6 @@ declare(strict_types=1);
 					el.style.width = w + "px";
 					el.style.height = h + "px";
 				}
-				table.style.zoom = "";
 				sizeBoxToMap();
 				el.style.overflow = "";
 				el.style.paddingTop = "";
@@ -147,11 +143,6 @@ declare(strict_types=1);
 				var limit = minimap ? minimap.getBoundingClientRect().left : window.innerWidth;
 				var box = el.getBoundingClientRect();
 				var available = limit - box.left - 6;
-				if (PM_SHRINK_CLUSTER || box.width > available) {
-					table.style.zoom = PM_MAP_SCALE;
-					sizeBoxToMap();
-					box = el.getBoundingClientRect();
-				}
 				if (box.width <= available || available < 300) { return; } // fits, or window too narrow to help
 
 				// The top padding holds the options bar. Move the box down by that much instead (via its
@@ -182,7 +173,8 @@ declare(strict_types=1);
 		<div id="details" name="game"><div id="close_detail"><a href="#" onClick="closeDetail();return false;">Close Detail</a></div><div id="d_con"></div></div>
 		<div id="overview" name="game"></div>
 		<div id="body">
-			<div id="clusterMapDiv" onmouseover="this.style.zIndex=20" onmouseout="this.style.zIndex=0">
+			<?php // The Pardus Core cluster overview shows all four P*C clusters, so it is drawn at 70% ?>
+			<div id="clusterMapDiv"<?php if (($code ?? '') === 'CORE') { echo ' style="zoom:0.7;"'; } ?> onmouseover="this.style.zIndex=20" onmouseout="this.style.zIndex=0">
                 <?php 
                     $url = rtrim((string) $base_url) . '/' . $uni . '/';
                     require_once(clusters(strtolower((string) $cluster)));
