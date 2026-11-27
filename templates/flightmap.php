@@ -58,7 +58,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
 					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw, and <b><?= $teleports ?></b> teleport<?= $teleports === 1 ? '' : 's' ?>.</p>
 				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
-					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. After a longer gap it could have gone anywhere, so no arrow is drawn.
+					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. It crosses a sector in 2-3 minutes, so after a longer gap it could have taken another route entirely, and no arrow is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
 					A move to a sector with no wormhole link in that short time is a flight on through sectors nobody saw (<b>dotted orange</b>),

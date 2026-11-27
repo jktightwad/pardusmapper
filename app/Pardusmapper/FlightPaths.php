@@ -37,11 +37,15 @@ class FlightPaths
     /** Same sector seen again more than this many seconds later: another flyby. */
     public const FLYBY_GAP = 1200;
 
-    /** Flybys in different sectors at most this many seconds apart are part of one chain. */
-    public const LINK_WINDOW = 2700;
+    /**
+     * Flybys in different sectors at most this many seconds apart are part of one chain. It crosses
+     * a sector in 2-3 minutes (7-10 s a tile), so after a longer gap it could have taken another
+     * route entirely.
+     */
+    public const LINK_WINDOW = 480;
 
     /** A jump that left by a wormhole is shown with the way on it could have flown, up to this many sectors. */
-    public const MAX_UNSEEN = 5;
+    public const MAX_UNSEEN = 3;
 
     /** Last seen on or next to a wormhole (this many tiles or fewer) before a jump: it left through the wormhole. */
     public const NEAR_WORMHOLE = 1;
@@ -89,8 +93,8 @@ class FlightPaths
             $otherSerpent = !is_null($p) && !is_null($p->nid) && !is_null($r->nid) && (int) $p->nid !== (int) $r->nid;
             $joined = !is_null($p) && !$otherSerpent && $gap <= self::LINK_WINDOW;
 
-            // still the same flyby: update the sector and move on
-            if ($joined && $p->sector === $r->sector && $gap <= self::FLYBY_GAP) {
+            // still the same flyby (same sector within FLYBY_GAP): update the sector and move on
+            if (!is_null($p) && !$otherSerpent && $p->sector === $r->sector && $gap <= self::FLYBY_GAP) {
                 $sectors[$r->sector]['last'] = $r->spotted;
                 $sectors[$r->sector]['active'] = $sectors[$r->sector]['active'] || (int) $r->active === 1;
                 $t = &$trail[$open[$r->uni]]['tiles'];
