@@ -124,7 +124,8 @@ for ($i = 1; $i < count($maparray); $i++) { //This loop addresses only the curre
         // this scenario will never happen as the foreground in map view can't be an opponent, it's always your ship.
         // Should look to "other ships" screen NOTED
         debug((str_contains($temp[1], "ponents") ? 'true' : 'false'). ' Evaluation Check');
-        http_response(str_contains($temp[1], "ponents") && !(in_array($temp[1], $nonblocking)), ApiResponse::OK, '(0) Fatal Error');
+        // (No fatal error here for an NPC on the pilot's tile: with an orbiter for that species, or in a
+        // BOP-X, any NPC is non-blocking and shows on the pilot's own tile, so this is normal data.)
 
         debug(strpos($temp[1], "ponents") . ' vs !strpos($temp[1],"ponents") ');
         debug((!strpos($temp[1], "ponents") != false) . ' !strpos($temp[1],"ponents") != false');
@@ -346,7 +347,7 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
             debug($id . ' No Foreground info to worry about');
         }
         debug('this is result ' . $r_npc . 'Temp 2 check');
-        if ($r_npc != 0) { //we have an NPC on the map but no NPC ID to record (non blocking NPC with newer mapper script)
+        if ($r_npc != 0) { // an NPC is shown on this tile
             if (!is_null($r->fg) && (isset($temp[2]) && $temp[2] !== false)) { // we have an NPC on the map but not an NID, thus can't have a building or SB or we wouldn't see the NPC
                 if (strpos($r->fg, "starbase")) {
                     DB::building_remove(universe: $uni, id: $id, sb: 1);
@@ -361,61 +362,24 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
             if (in_array($id, $static)) {
                 continue;
             }
-            debug($id . ' Not Static NPC');
-            if (is_null($r->npc)) {
-                debug($id . ' No NPC Data in DB');
-                $nid = isset($temp[2]) ? (int)$temp[2] : null;
-                if (is_null($r->fg) || $nid) { //Add check that we say the FG is not a building but the DB might have something?
-                    //if (is_null($r->fg)||$r_fg == 0) { //Added check that we say the FG is not a building but the DB might have something
-                    debug($id . ' setting $npc = ' . $temp[$r_npc] . ' and then' . ' Adding New NPC');
-                    $npc = $temp[$r_npc];
-                    // if (in_array($npc, $hack)) {
-                    //     $ip = $_SERVER['REMOTE_ADDR'];
-                    //     $db->query("SELECT * FROM {$uni}_Users WHERE `ip` = '$ip'");
-                    //     ++$sqlcount; // Counting SQL iterations per connection
-                    //     //if ($user = $dbClass->nextObject()) { //removed in debugging 9.16.24
-                    //     //not sure what this was for but it won't work in current instance as the DB fields have changed
-                    //     //$db->query("INSERT INTO ${uni}_Hack (`id`,`username`,`version`,`image`,`date`) VALUES ($user->id,'$user->username','$version','$npc',$UTC_TIMESTAMP())");
-                    //     ++$sqlcount; // Counting SQL iterations per connection
-                    //     //}
-                    // }
-                    if (in_array($temp[$r_npc], $single)) {
-                        // NPC is only one per Cluster Find location of previous Instance
-                        $db->execute(sprintf("SELECT * FROM %s_Maps WHERE cluster = ? AND npc = ?", $uni), [
-                            'ss', $r->cluster, $npc
-                        ]);
-                        ++$sqlcount; // Counting SQL iterations per connection
+            $npc = $temp[$r_npc];
+            // An nID only ever comes from the pilot's own tile (the Other Ships list). Never take one
+            // for any other tile: an NPC must not get another NPC's ID from a remote observation.
+            $nid = ($id == $loc && isset($temp[2]) && ctype_digit((string) $temp[2])) ? (int) $temp[2] : null;
 
-                        $to_delete = [];
-                        while ($t = $db->nextObject()) {
-                            $to_delete[] = $t->id;
-                        }
-                        if ($to_delete) {
-                            for ($t = 0; $t < count($to_delete); $t++) {
-                                // Delete NPC from Data Table
-                                debug('Blow Away 1');
-                                DB::npc_remove(universe: $uni, id: $to_delete[$t]);
-                                ++$sqlcount; // Counting SQL iterations per connection
-                            }
-                        }
-                    }
-                    debug('Adding NPC with nid' . ($uni . $temp[$r_npc] . $id . $nid));
-                    DB::npc_add(universe: $uni, image: $temp[$r_npc], id: $id, sector: null, x: $x, y: $y, nid: $nid); // Adding nid
+            // a building is recorded here and the NPC came without an ID: keep the building, skip the NPC
+            if (is_null($r->npc) && !is_null($r->fg) && is_null($nid)) {
+                debug($id . ' NPC seen on a building tile without an nID, skipping');
+            } else {
+                if (in_array($npc, $single) && $r->npc != $npc) {
+                    // NPC is only one per cluster: it has left wherever it was recorded before
+                    DB::npc_end_elsewhere(universe: $uni, cluster: (string) $r->cluster, image: $npc, exceptId: $id);
                     ++$sqlcount; // Counting SQL iterations per connection
                 }
-            } elseif ($temp[$r_npc] == $r->npc) { // it's the same NPC the map shows
-                $nid = isset($temp[2]) ? (int)$temp[2] : null;
-                debug($id . ' with nid = ' . $nid . ' and Uncloaked');
-                DB::map_update_npc(universe: $uni, image: $temp[$r_npc], id: $id, cloaked: 0, nid: $nid);
-                ++$sqlcount; // Counting SQL iterations per connection
-            } else {
-                $nid = isset($temp[2]) ? (int)$temp[2] : null;
-                debug($id . ' with nid = ' . $nid . ' and Uncloaked');
-
-                debug($id . ' Has a Different NPC so Blow Away 2');
-                DB::npc_remove(universe: $uni, id: $id);
-                ++$sqlcount; // Counting SQL iterations per connection
-                DB::npc_add(universe: $uni, image: $temp[$r_npc], id: $id, sector: null, x: $x, y: $y, nid: $nid); // Adding nid
+                // Record this NPC on the tile. Other NPCs recorded here are kept if they can share the
+                // tile (Vyrex, Pirates: cloaked or hidden under a bigger NPC); see DB::npc_add.
+                debug($id . ' NPC seen: ' . $npc . ' nid = ' . ($nid ?? 'none'));
+                DB::npc_add(universe: $uni, image: $npc, id: $id, sector: null, x: $x, y: $y, nid: $nid);
                 ++$sqlcount; // Counting SQL iterations per connection
             }
         } else {
@@ -436,40 +400,39 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
                 }
                 //}
             }
-            if (!(is_null($r->npc))) { // Check if NPC exists
-                if (($id == $_REQUEST['id']) && (isset($temp[2]) && $temp[2] !== false) && (str_contains($temp[1], "ships")) && !(in_array($r->npc, $nonblocking))) {
-                    debug('--result of test for Blow Away 3');
-                }
-
-                if (($id == $_REQUEST['id']) && (isset($temp[2]) && $temp[2] !== false) && (str_contains($temp[1], "ships")) && !(in_array($r->npc, $nonblocking))) {
-                    debug('is this working or what');
-                    debug('??NPC has been killed');
-                    debug('Blow Away 3');
+            if (!(is_null($r->npc))) { // NPCs are recorded here but the tile shows none
+                if ($id == $loc) {
+                    // The pilot is on this tile and sees no NPC: nothing is here, cloaked or not.
+                    debug('Blow Away 3: pilot on the tile sees no NPC');
                     DB::npc_remove(universe: $uni, id: $id);
                     ++$sqlcount; // Counting SQL iterations per connection
                 } else {
-                    if ((in_array($r->npc, $cloaked)) && !(in_array($r->npc, $mobile))) {
-                        debug('NPC has cloaked', $r->npc, $temp[$r_npc]);
-                        $nid = isset($temp[2]) ? (int)$temp[2] : null;
-                        if (is_null($r->npc_cloaked)) {
-                            DB::map_update_npc(universe: $uni, image: $r->npc, id: $id, cloaked: 1, nid: $nid);
-                            ++$sqlcount; // Counting SQL iterations per connection
-                        } else {
-                            $show = strtotime($r->today) - strtotime($r->npc_updated);
-                            if ($show > 432000) {
-                                debug('Blow Away 4');
-                                DB::npc_remove(universe: $uni, id: $id);
-                                ++$sqlcount; // Counting SQL iterations per connection
+                    // Seen from another tile. Decide per NPC record:
+                    // - Vyrex: may be cloaked, so only a pilot on the tile can clear it. Mark it cloaked.
+                    // - other NPCs that can cloak (and don't roam): mark cloaked; clear after 5 days unseen.
+                    // - everything else is gone.
+                    $ended = [];
+                    foreach (DB::npc_live(universe: $uni, id: $id) as $n) {
+                        $img = (string) $n->image;
+                        if (NPC::is_vyrex($img)) {
+                            DB::npc_cloak(universe: $uni, kid: (int) $n->kid);
+                        } elseif (in_array($img, $cloaked) && !in_array($img, $mobile)) {
+                            if (empty($n->cloaked)) {
+                                debug('NPC has cloaked', $img);
+                                DB::npc_cloak(universe: $uni, kid: (int) $n->kid);
+                            } elseif (strtotime((string) $n->today) - strtotime((string) $n->updated) > 432000) {
+                                debug('Blow Away 4: cloaked for 5 days', $img);
+                                $ended[] = (int) $n->kid;
                             }
+                        } else {
+                            debug('Blow Away 5: NPC gone', $img);
+                            $ended[] = (int) $n->kid;
                         }
-                    } else {
-                        debug('???NPC has been killed');
-                        debug($id . '-' . $_REQUEST['id']);
-                        debug('???Now Trying to remove the record');
-                        debug('Blow Away 5');
-                        DB::npc_remove(universe: $uni, id: $id);
                         ++$sqlcount; // Counting SQL iterations per connection
                     }
+                    DB::npc_end(universe: $uni, kids: $ended, sync: false);
+                    DB::npc_sync_tile(universe: $uni, id: $id);
+                    $sqlcount += 2; // Counting SQL iterations per connection
                 }
             }
         }

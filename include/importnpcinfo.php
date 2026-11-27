@@ -38,23 +38,21 @@ $hull = Request::pint(key: 'hull', default: 0);
 $armor = Request::pint(key: 'armor', default: 0);
 $shield = Request::pint(key: 'shield', default: 0);
 
-$db->execute(sprintf('SELECT * FROM %s_Maps M inner join %s_Test_Npcs TN on M.id = TN.id and TN.deleted is null where M.id = ?', $uni, $uni), [
-    'i', $loc
-]);
-$m = $db->nextObject();
-debug('Map', $m);
+http_response(is_null($image) || !str_starts_with($image, 'opponents/'), ApiResponse::OK, sprintf('img query parameter is required or invalid: %s', $image ?? 'null'));
 
-if (is_null($m)) {
-    debug('NPC not found on the tile, Inserting New Info into DB');
-    DB::npc_add(universe: $uni, image: $image, id: $loc, sector: null, x: 0, y: 0, nid: $nid);
-} elseif ($dead) {
-    debug('You killed it, good job...removing NPC');
-    DB::npc_remove(universe: $uni, id: $loc, deleteMissions: true);
-} elseif ($m->npc == $image) {
-    debug('Updating Hull, Armor, and Shield');
-    DB::npc_update_health(universe: $uni, id: $loc, hull: $hull, armor: $armor, shield: $shield, nid: $nid);
+// The pilot is on the tile fighting this NPC, so this is a direct sighting: find (or add) the
+// record of this NPC only. Other NPCs on the tile (a Vyrex stack, a cloaked Vyrex) are left alone,
+// except NPCs that cannot share a tile with it (see DB::npc_add). Its nID is filled in only if the
+// record has none; a record's nID is never changed to a different NPC's.
+$kid = DB::npc_add(universe: $uni, image: $image, id: $loc, sector: null, x: 0, y: 0, nid: $nid);
+http_response(is_null($kid), ApiResponse::OK, sprintf('tile not found: %s', $loc));
+
+if ($dead) {
+    // End only the NPC that was killed. If nobody had recorded it, it was added just above, so
+    // the kill still leaves a sighting in the history.
+    debug('You killed it, good job...ending its record');
+    DB::npc_end(universe: $uni, kids: [$kid], deleteMissions: true);
 } else {
-    debug($m->npc . 'Removing Old NPC adding New<br>');
-    DB::npc_remove(universe: $uni, id: $loc, deleteMissions: true);
-    DB::npc_add(universe: $uni, image: $image, id: $loc, sector: null, x: 0, y: 0, nid: $nid);
+    debug('Updating Hull, Armor, and Shield');
+    DB::npc_update_health(universe: $uni, kid: $kid, hull: $hull, armor: $armor, shield: $shield);
 }

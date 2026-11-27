@@ -62,6 +62,20 @@ while ($q = $dbClass->fetchObject()) {
     // $m[$q->id] = $q; // Uncomment if you want to use id as the key
 }
 
+// Every NPC recorded on each tile right now. The tile shows one image, but Vyrex and Pirates share
+// tiles with other NPCs and Vyrex stack, so the tooltip lists them all: "Shadow, Vyrex Assassin x3".
+$tileNpcs = [];
+$dbClass->execute(sprintf('SELECT x, y, name, image, MAX(cloaked) AS cloaked, COUNT(*) AS n FROM %s_Test_Npcs WHERE sector = ? AND (deleted IS NULL OR deleted = 0) GROUP BY x, y, name, image', $uni), [
+    's', $sector
+]);
+while ($q = $dbClass->fetchObject()) {
+    if (in_array($q->image, $npc_list) && !isset($_SESSION['user'])) {
+        continue;
+    }
+    $label = $q->name ?: ucwords(str_replace('_', ' ', basename((string) $q->image, '.png')));
+    $tileNpcs[$q->x][$q->y][] = $label . ((int) $q->n > 1 ? ' x' . (int) $q->n : '') . (empty($q->cloaked) ? '' : ' (cloaked?)');
+}
+
 // Rare NPC sighting history, combined across all universes (logged-in users only)
 // Times come from when the record was added (`spotted`); `updated` is overwritten when the NPC
 // is reported gone, so it is not a "last seen" time. Records of the same NPC on the same tile
@@ -218,9 +232,17 @@ for ($y = 0;$y < $s->rows;$y++) {
                         if ($map->npc_cloaked == 1) { $npc_id .= 'Cloak'; }
                         if (isset($map->is_history)) { $npc_id .= ' history-npc'; }
 
-                        $hist_title = isset($hist[$x][$y])
-                            ? ' title="' . htmlspecialchars($hist[$x][$y]['title']) . '" data-utc="' . htmlspecialchars($hist[$x][$y]['utc']) . '" data-utc-text="' . htmlspecialchars($hist[$x][$y]['utc_text']) . '"'
+                        // tooltip: every NPC recorded here now (when there is more than one), then the
+                        // rare NPC history for the tile
+                        $here = (count($tileNpcs[$x][$y] ?? []) > 1 || str_contains(implode('', $tileNpcs[$x][$y] ?? []), ' x'))
+                            ? 'NPCs here: ' . implode(', ', $tileNpcs[$x][$y])
                             : '';
+                        if (isset($hist[$x][$y])) {
+                            $title = ($here !== '' ? $here . "\n" : '') . $hist[$x][$y]['title'];
+                            $hist_title = ' title="' . htmlspecialchars($title) . '" data-utc="' . htmlspecialchars($hist[$x][$y]['utc']) . '" data-utc-text="' . htmlspecialchars($hist[$x][$y]['utc_text']) . '"';
+                        } else {
+                            $hist_title = $here !== '' ? ' title="' . htmlspecialchars($here) . '"' : '';
+                        }
                         // plain image like every other tile layer (bg/fg/npc stack via margin-top:-32px)
                         $return .= '<img class="' . $npc_id . '" src="' . $npc_img . '" alt="' . $npc_diff['string'] . '"' . $hist_title . ' />';
 

@@ -180,6 +180,24 @@ class NPC{
         'opponents/vyrex_mutant_mauler.png',
     ];
 
+    /**
+     * Only Vyrex and Pirates share a tile with another NPC; Vyrex can also stack (many of the same
+     * type on one tile). Any other NPC seen on a tile replaces the non-sharing NPC recorded there.
+     */
+    public static function shares_tile(string $image): bool
+    {
+        return (bool) preg_match('#^opponents/(vyrex_|pirate_)#', $image);
+    }
+
+    /**
+     * Vyrex can cloak, and an uncloaked Vyrex can be hidden under a bigger NPC on the nav screen,
+     * so a Vyrex record is only ended by a pilot on its tile (or a kill), never from another tile.
+     */
+    public static function is_vyrex(string $image): bool
+    {
+        return str_starts_with($image, 'opponents/vyrex_');
+    }
+
     public static function cloaked() {
         $cloaked = self::CLOACKED;
         sort($cloaked);
