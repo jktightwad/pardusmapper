@@ -128,7 +128,9 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg .mm-mark text { fill: #000; font: bold 9px sans-serif; text-anchor: middle; }
 			#stats svg .mm-active rect { fill: rgba(0,229,255,0.6); stroke: #00e5ff; }
 			/* Feral Serpent flight map (templates/flightmap.php) */
-			#stats svg.flightmap { display: block; border: 1px solid #334649; margin: 6px 0 14px; }
+			/* the box holds the dark background and clips the map, so panning/zooming never shows past it */
+			#stats .fm-wrap { width: 100%; max-width: 1100px; overflow: hidden; background: #081116; border: 1px solid #334649; margin: 6px 0 14px; }
+			#stats svg.flightmap { display: block; width: 100%; height: auto; overflow: hidden; background: #081116; cursor: grab; }
 			#stats svg .fm-link { stroke: #2a4650; stroke-width: 1.5; }
 			#stats svg .fm-sector rect { fill: #13232b; stroke: #2a4650; stroke-width: 1; }
 			#stats svg .fm-sector text { fill: #5d7680; text-anchor: middle; font-family: sans-serif; }
@@ -174,7 +176,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 					<a href="<?= $h($statsUrl) ?>">All tracked NPCs</a>
 					<?php if ($stats['slug']) { ?> &raquo; <a href="<?= $h($statsUrl . '?npc=' . $stats['slug']) ?>"><?= $h($stats['groups'][$stats['slug']]['name']) ?></a><?php } ?>
 					<?php if ($stats['view'] === 'compare') { ?> &raquo; Compare universes<?php } ?>
-					<?php if ($stats['view'] === 'flight') { ?> &raquo; Flight paths<?= $stats['u'] ? ' &raquo; ' . $h($stats['u']) : '' ?><?= ($stats['u'] && $stats['nid']) ? ' ID ' . $h($stats['nid']) : '' ?><?php } ?>
+					<?php if ($stats['view'] === 'flight') { ?> &raquo; Routes<?php } ?>
 				</div>
 
 <?php if ($stats['view'] === 'overview') { ?>
@@ -203,16 +205,15 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 				<p class="note"><b><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&compare=1') ?>">Compare the universes over time</a></b>
 					&ndash; Orion, Artemis and Pegasus side by side, and whether it turns up in the same sectors at the same time.</p>
 				<?php if ($isSerpent) { ?>
-					<p class="note"><b>Flight paths on the universe map:</b>
-						<a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1') ?>">all universes</a>
-						<?php foreach (Settings::UNIVERSE as $fu) { ?> | <a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1&u=' . $fu) ?>"><?= $h($fu) ?></a><?php } ?></p>
+					<p class="note"><b><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1') ?>">Routes on the universe map</a></b>
+						&ndash; confirmed and suspected routes, direction of travel, and teleports, from all universes combined.</p>
 				<?php } ?>
 				<h3>Unique NPC IDs</h3>
 				<?php if (count($stats['ids']) === 0) { ?>
 					<p class="note">No sightings with an NPC ID yet.</p>
 				<?php } else { ?>
 				<table class="stats">
-					<tr><th>Universe</th><th>NPC ID</th><th>Sightings<br />with this ID</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><?= $isSerpent ? '<th>Flight path</th>' : '' ?></tr>
+					<tr><th>Universe</th><th>NPC ID</th><th>Sightings<br />with this ID</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th></tr>
 					<?php foreach ($stats['ids'] as $id) { ?>
 					<tr>
 						<td><?= $h($id['uni']) ?></td>
@@ -221,9 +222,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 						<td><?= count($id['sectors']) ?></td>
 						<td class="l"><?= $h($id['where']) ?><?= $id['active'] ? ' <span class="live">(seen now)</span>' : '' ?></td>
 						<td><?= $when($id['first']) ?></td>
-						<td><?= $when($id['last']) ?></td>
-						<?php if ($isSerpent) { ?><td><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&u=' . $id['uni'] . '&nid=' . $id['nid']) ?>">Flight path</a></td><?php } ?>
-					</tr>
+						<td><?= $when($id['last']) ?></td>					</tr>
 					<?php } ?>
 				</table>
 				<?php } ?>

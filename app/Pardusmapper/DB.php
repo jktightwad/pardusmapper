@@ -964,13 +964,14 @@ class DB
      *   sector names (any capitals); anything that isn't a sector ("Wormhole not yet open") is skipped.
      * - Wormholes within one sector (Pardus has some, to cross its impassable areas) are skipped:
      *   they don't link sectors.
-     * - X holes ("xhole") are linked to each other; Y holes ("yhole") lead out of the Core to them.
+     * - X and Y holes ("xhole", "yhole") are skipped: nothing known travels them (the Feral Serpent
+     *   doesn't), and they would link sectors all over the universe.
      *
      * @return array list of [sector, target sector]
      */
     public static function wormhole_links(): array
     {
-        $cache = sys_get_temp_dir() . '/pardusmapper_wormhole_links_v2.json';
+        $cache = sys_get_temp_dir() . '/pardusmapper_wormhole_links_v3.json'; // v3: without X/Y holes
         if (is_file($cache) && (time() - (int) filemtime($cache)) < 86400) {
             $links = json_decode((string) file_get_contents($cache), true);
             if (is_array($links)) {
@@ -1002,28 +1003,12 @@ class DB
         }
 
         $pairs = [];
-        $xholes = [];
-        $yholes = [];
         foreach ($rows as $row) {
             $from = $names[strtolower((string) $row->sector)] ?? null;
             $to = strtolower(trim((string) $row->wormhole));
-            if (is_null($from)) {
-                continue;
-            }
-            if ($to === 'xhole') {
-                $xholes[$from] = true;
-            } elseif ($to === 'yhole') {
-                $yholes[$from] = true;
-            } elseif (isset($names[$to]) && $names[$to] !== $from) {
+            // ("xhole" / "yhole" aren't sector names, so X and Y holes drop out here)
+            if (!is_null($from) && isset($names[$to]) && $names[$to] !== $from) {
                 $pairs[$from . '|' . $names[$to]] = [$from, $names[$to]];
-            }
-        }
-        foreach (array_keys($xholes) as $x) {
-            foreach (array_keys($xholes) as $other) {
-                if ($x !== $other) { $pairs[$x . '|' . $other] = [$x, $other]; }
-            }
-            foreach (array_keys($yholes) as $y) {
-                $pairs[$y . '|' . $x] = [$y, $x];
             }
         }
         $links = array_values($pairs);

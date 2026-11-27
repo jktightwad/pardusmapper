@@ -9,8 +9,7 @@ require_once('app/settings.php');
  * Views (all active contributors only, same 48h rule as NPC List):
  *   /{Uni}/npcstats                          overview of every tracked NPC
  *   /{Uni}/npcstats?npc=feral_serpent        one NPC: its unique IDs + where it has been seen (by name)
- *   /{Uni}/npcstats?npc=feral_serpent&flight=1[&u=Orion]  Feral Serpent flight paths on the universe map
- *   /{Uni}/npcstats?npc=feral_serpent&u=Orion&nid=123     one serpent's flight path
+ *   /{Uni}/npcstats?npc=feral_serpent&flight=1   Feral Serpent routes on one map (all universes combined)
  *   /{Uni}/npcstats?npc=shadow&compare=1[&by=day|week|month][&oldest=1]  the universes side by side in time
  */
 
@@ -48,6 +47,7 @@ $nid = Request::pint(key: 'nid');
 $view = 'overview';
 if (!is_null($slug)) {
     // only the Feral Serpent moves between sectors, so only it has a flight-path view
+    // (old per-universe / per-ID links, &u= and &nid=, still open the combined map)
     $wantsFlight = Request::pbool(key: 'flight') || (!is_null($trailUni) && !is_null($nid));
     $view = ($slug === FlightPaths::SLUG && $wantsFlight) ? 'flight' : 'npc';
     if (Request::pbool(key: 'compare')) {
@@ -155,9 +155,9 @@ if ($view === 'compare') {
 }
 
 if ($view === 'flight') {
-    // Feral Serpent flight paths on the universe map: all serpents (optionally one universe),
-    // or one serpent ID (u + nid). See FlightPaths for how sightings become moves.
-    $stats['flight'] = FlightPaths::build(universe: $trailUni, nid: is_null($trailUni) ? null : $nid);
+    // Feral Serpent routes on one map: the universes are copies and it flies the same routes in
+    // each, so all universes' sightings are combined. See FlightPaths for how sightings become moves.
+    $stats['flight'] = FlightPaths::build();
     $stats['layout'] = UniverseMap::layout();
     $stats['routes'] = FlightPaths::routes($stats['flight'], $stats['layout']['sectors']);
     $stats['dims'] = DB::sector_dims(array_keys($stats['flight']['tracks']));

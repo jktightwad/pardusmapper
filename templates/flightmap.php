@@ -2,33 +2,44 @@
 declare(strict_types=1);
 
 /**
- * Feral Serpent flight paths on the universe map. Included from templates/npcstats.php.
+ * Feral Serpent routes on the universe map: one map, all universes combined (they are copies and
+ * it flies the same routes in each). Included from templates/npcstats.php.
  *
- * @var array $stats      ['flight' => FlightPaths::build(), 'layout' => UniverseMap::layout(), 'u', 'nid', 'slug']
+ * @var array $stats      ['flight' => FlightPaths::build(), 'layout' => UniverseMap::layout(), 'routes', 'dims', 'slug']
  * @var string $uni
  * @var string $statsUrl
- * @var callable $h, $when, $utcAttr, $utcText, $sectorUrl
+ * @var callable $h, $when, $utcAttr, $utcText, $sectorUrl, $sectorSvg
  */
 
-use Pardusmapper\Core\Settings;
 use Pardusmapper\DB;
 use Pardusmapper\FlightPaths;
 use Pardusmapper\UniverseMap;
 
 $flight = $stats['flight'];
 $pos = $stats['layout']['sectors'];
-$mapUni = $stats['u'] ?? $uni; // sector links open in this universe
-$base = $statsUrl . '?npc=' . FlightPaths::SLUG . '&flight=1';
+$mapUni = $uni; // sector links open in the universe being browsed
 
 // Sectors that appear in the data and on the map
 $visited = array_filter(array_keys($flight['sectors']), static fn ($s) => isset($pos[$s]));
 $unplaced = array_diff(array_keys($flight['sectors']), $visited);
-?>
-				<p class="note"><b>Universe:</b>
-					<?= is_null($stats['u']) ? '<b>All</b>' : '<a href="' . $h($base) . '">All</a>' ?>
-					<?php foreach (Settings::UNIVERSE as $fu) { ?> | <?= ($stats['u'] === $fu && is_null($stats['nid'])) ? '<b>' . $h($fu) . '</b>' : '<a href="' . $h($base . '&u=' . $fu) . '">' . $h($fu) . '</a>' ?><?php } ?>
-					<?php if ($stats['u'] && $stats['nid']) { ?> &nbsp; Showing serpent ID <b><?= $h($stats['nid']) ?></b> only.<?php } ?></p>
 
+/**
+ * What a move is, for the map: confirmed (seen flying it), suspected (filled in between
+ * sightings, or flown through sectors nobody saw), a confirmed teleport (too fast to have flown),
+ * or a teleport out of a sector where it was stuck.
+ */
+$moveKind = static function (array $m): string {
+    if ($m['type'] === 'jump') {
+        if ($m['exits']['teleport'] > 0) { return 'teleport'; }
+        if ($m['exits']['stuck'] > 0) { return 'stuck'; }
+        return 'unseen';
+    }
+    if ($m['count'] === 0) {
+        return ($m['teleportOut'] ?? 0) > 0 ? 'hop' : 'suspected';
+    }
+    return 'confirmed';
+};
+?>
 <?php if (count($visited) === 0) { ?>
 				<p class="note">No Feral Serpent sightings to show yet.</p>
 <?php } else {
@@ -42,58 +53,39 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     $vh = max(max($ys) + $margin - $vy, 320);
     $inView = static fn (array $p): bool => $p['x'] >= $vx - $p['w'] && $p['x'] <= $vx + $vw + $p['w'] && $p['y'] >= $vy - $p['h'] && $p['y'] <= $vy + $vh + $p['h'];
 
-    // Wormhole network (cluster minimaps + recorded wormholes), drawn faintly underneath
+    // Wormhole network (cluster minimaps + recorded wormholes), drawn faintly underneath. X and Y
+    // holes (and other far-reaching wormholes) aren't drawn: they link sectors all over the map.
     $links = [];
     foreach ($stats['layout']['links'] as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
     foreach (DB::wormhole_links() as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
-
-    $flights = 0; $teleports = 0; $possible = 0; $unseen = 0;
-    foreach ($flight['moves'] as $m) {
-        if ($m['type'] === 'flight') { $flights += $m['count']; continue; }
-        $teleports += $m['exits']['teleport'];
-        $possible += $m['exits']['stuck'];
-        $unseen += $m['exits']['wormhole'] + $m['exits']['unseen'] + $m['exits']['unknown'];
-    }
-    $possible += $flight['guesses']['stuck']; // gaps where it teleported out, then flew on
+    $maxLink = $cell * 3;
 ?>
-				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>
-					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
-					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw,
-					<b><?= $teleports ?></b> confirmed teleport<?= $teleports === 1 ? '' : 's' ?> and <b><?= $possible ?></b> teleport<?= $possible === 1 ? '' : 's' ?> out of a sector where it was stuck.</p>
-				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
-					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last.
-					When the next sighting is <?= FlightPaths::LINK_WINDOW / 60 ?>-<?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later in another sector, the <b>likely route</b> in between is filled in (faint dots):
-					the shortest way along moves already seen, else by wormholes, if it could fly it in that time.
-					If it was stuck when last seen, it teleported out one sector and flew on from there: the first move of the route is that teleport (<b>dotted purple</b>).
-					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none'] + $gs['stuck']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?><?= $gs['stuck'] ? '; ' . $gs['stuck'] . ' of them after it teleported out, so the first move is the teleport' : '' ?>.)<?php } ?>
-					More than <?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later is a different flyby and route, and nothing is drawn.
-					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
-					Each direction has its own arrow, and thicker arrows were seen more often.
-					A <b>teleport</b> is only <b>confirmed</b> (<b>dashed purple</b>) when it was seen in the next sector sooner than it could have flown there at top speed
-					(<?= FlightPaths::FASTEST_SECTOR_TIME ?> s for each sector move by wormholes: 2 sectors away in under a minute), or there is no way to fly there at all.
-					A hop into a neighbouring sector can't be confirmed this way: a wormhole is instant.
-					A move to a sector with no wormhole link that it had time to fly is a flight on through sectors nobody saw (<b>dotted orange</b>),
-					unless it was <b>stuck</b> when last seen: away from any wormhole, with impassable energy on the next tile in the direction it was heading and no way back. Then it <b>teleported out</b> one sector and flew on (<b>dotted purple</b>).
-					Hover an arrow or sector for details. Times are your local time.</p>
+				<p class="note">Where the Feral Serpent flies, pieced together from sightings in all three universes (they are copies, and it flies the same routes in each).
+					Each arrow shows the direction it was flying. <b>Confirmed</b> moves were seen: it was spotted in one sector and then the next within <?= FlightPaths::LINK_WINDOW / 60 ?> minutes.
+					<b>Suspected</b> moves weren't seen: the likely way between two sightings <?= FlightPaths::LINK_WINDOW / 60 ?>-<?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes apart
+					(along routes seen before, else the shortest way by wormholes it could have flown in the time), or a flight on through sectors nobody saw.
+					A <b>teleport</b> is confirmed only when it turned up somewhere sooner than it could have flown there (<?= FlightPaths::FASTEST_SECTOR_TIME ?> s a sector: 2 sectors away in under a minute).
+					When it gets <b>stuck</b> (impassable energy ahead, away from any wormhole, no way back) it <b>teleports out</b> one sector and flies on from there.
+					Hover an arrow or sector for details.</p>
 				<div class="legend">
-					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
-					<span><span class="sw" style="background:repeating-linear-gradient(90deg,rgba(255,140,26,0.55) 0 1px,transparent 1px 5px)"></span>Likely route (filled in, not seen)</span>
-					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 2px,transparent 2px 5px)"></span>Flew on unseen</span>
+					<span><span class="sw" style="background:#ff8c1a"></span>Confirmed route</span>
+					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 2px,transparent 2px 5px)"></span>Suspected route</span>
 					<span><span class="sw" style="background:#b06cf0"></span>Teleport (too fast to have flown)</span>
-					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#b06cf0 0 2px,transparent 2px 5px)"></span>Teleported out (stuck): one sector, then flew on</span>
+					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#b06cf0 0 2px,transparent 2px 5px)"></span>Teleported out (stuck)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
 					<span><span class="sw" style="border:2px dashed #b06cf0"></span>Known teleport sector</span>
 				</div>
-				<p class="note">Scroll on the map to zoom in (e.g. on FRC), drag to move around, double-click to reset.</p>
-				<svg id="flightmap" class="flightmap" viewBox="<?= sprintf('%.0f %.0f %.0f %.0f', $vx, $vy, $vw, $vh) ?>" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:<?= (int) min(1100, $vw) ?>px">
+				<p class="note">Scroll on the map to zoom in, drag to move around, double-click to reset.</p>
+				<div class="fm-wrap">
+				<svg id="flightmap" class="flightmap" viewBox="<?= sprintf('%.0f %.0f %.0f %.0f', $vx, $vy, $vw, $vh) ?>" xmlns="http://www.w3.org/2000/svg">
 					<defs>
 						<marker id="fm-arrow-flight" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ff8c1a"/></marker>
 						<marker id="fm-arrow-jump" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#b06cf0"/></marker>
 					</defs>
-					<rect x="<?= $vx ?>" y="<?= $vy ?>" width="<?= $vw ?>" height="<?= $vh ?>" fill="#081116"/>
 <?php
     foreach ($links as [$a, $b]) {
         if (!isset($pos[$a], $pos[$b]) || !($inView($pos[$a]) || $inView($pos[$b]))) { continue; }
+        if (hypot($pos[$b]['x'] - $pos[$a]['x'], $pos[$b]['y'] - $pos[$a]['y']) > $maxLink) { continue; }
         printf('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" class="fm-link"/>', $pos[$a]['x'], $pos[$a]['y'], $pos[$b]['x'], $pos[$b]['y']);
     }
 
@@ -104,9 +96,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         $class = 'fm-sector' . ($sec ? ' fm-visited' : '') . (($sec['active'] ?? false) ? ' fm-live' : '') . (in_array($name, FlightPaths::KNOWN_TELEPORTS, true) ? ' fm-teleport' : '');
         $title = $name;
         if ($sec) {
-            $byUni = [];
-            foreach (Settings::UNIVERSE as $u) { if (isset($sec['unis'][$u])) { $byUni[] = $u . ' ' . $sec['unis'][$u]; } }
-            $title .= sprintf(': %d flyby%s (%s), last seen %s%s', $sec['flybys'], $sec['flybys'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $sec['last']), $sec['active'] ? ', there now' : '');
+            $title .= sprintf(': seen here, last %s%s', $utcText((string) $sec['last']), $sec['active'] ? ', there now' : '');
         }
         if (in_array($name, FlightPaths::KNOWN_TELEPORTS, true)) { $title .= ' (known teleport sector)'; }
         printf('<a href="%s"><g class="%s"><title%s>%s</title>', $h($sectorUrl($mapUni, $name)), $class, $sec ? $utcAttr((string) $sec['last']) : '', $h($title));
@@ -117,7 +107,6 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     }
 
     // Moves: shorten to the sector edges, offset sideways so A->B and B->A are separate arrows
-    $maxCount = max(array_column($flight['moves'], 'count') ?: [1]);
     foreach ($flight['moves'] as $m) {
         if (!isset($pos[$m['from']], $pos[$m['to']])) { continue; }
         $a = $pos[$m['from']]; $b = $pos[$m['to']];
@@ -130,41 +119,36 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         $trimA = min($a['w'], $a['h']) * 0.36; $trimB = min($b['w'], $b['h']) * 0.36;
         $x1 = $a['x'] + $ux * $trimA + $ox; $y1 = $a['y'] + $uy * $trimA + $oy;
         $x2 = $b['x'] - $ux * $trimB + $ox; $y2 = $b['y'] - $uy * $trimB + $oy;
-        $width = 1.2 + 2.8 * log(1 + $m['count']) / log(1 + $maxCount);
 
-        $byUni = [];
-        foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
-        $isTeleport = $m['type'] === 'jump' && $m['exits']['teleport'] > 0;
-        $isPossible = $m['type'] === 'jump' && !$isTeleport && $m['exits']['stuck'] > 0;
-        $kind = $m['type'] === 'flight' ? 'flight' : ($isTeleport ? 'teleport: too fast to have flown' : ($isPossible ? 'teleported out (stuck), then flew on unseen' : 'flew on unseen'));
-        $guessedOnly = $m['count'] === 0;
-        $hops = $m['teleportOut'] ?? 0; // times this was the teleport out of a sector where it was stuck
-        if ($guessedOnly) {
-            $label = sprintf('%s → %s (likely route, not seen): filled in %d time%s between sightings %d-%d minutes apart%s',
-                $m['from'], $m['to'], $m['guessed'], $m['guessed'] === 1 ? '' : 's', FlightPaths::LINK_WINDOW / 60, FlightPaths::EXTRAPOLATE_WINDOW / 60,
-                $hops ? sprintf('; %d time%s it teleported out of %s here, as it was stuck', $hops, $hops === 1 ? '' : 's', $m['from']) : '');
-        } else {
-            $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s%s', $m['from'], $m['to'], $kind,
-                $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
-                ($m['guessed'] ? sprintf('; also filled in %d time%s as the likely route', $m['guessed'], $m['guessed'] === 1 ? '' : 's') : '')
-                    . ($hops ? sprintf(', %d of them when it teleported out of %s, as it was stuck', $hops, $m['from']) : ''),
-                $m['via'] ? '. Could have flown via ' . implode(' or via ', array_map(static fn ($w) => implode(', ', $w), $m['via'])) : '');
-        }
+        $kind = $moveKind($m);
+        $via = $m['via'] ? ' Could have flown via ' . implode(' or via ', array_map(static fn ($w) => implode(', ', $w), $m['via'])) . '.' : '';
+        $label = $m['from'] . ' → ' . $m['to'] . ': ' . match ($kind) {
+            'confirmed' => 'confirmed (seen flying it), last ' . $utcText((string) $m['last'])
+                . (($m['teleportOut'] ?? 0) > 0 ? '; it has also teleported out of ' . $m['from'] . ' into ' . $m['to'] . ' when stuck' : ''),
+            'suspected' => 'suspected (the likely way between two sightings, not seen)',
+            'hop' => 'teleported out of ' . $m['from'] . ' (stuck), then flew on',
+            'teleport' => 'teleport: seen there sooner than it could have flown, last ' . $utcText((string) $m['last']),
+            'stuck' => 'teleported out of ' . $m['from'] . ' (stuck), then flew on unseen.' . $via,
+            default => 'suspected: flew on through sectors nobody saw.' . $via,
+        };
         $moveKey = $h($m['from'] . '|' . $m['to']);
+        $timed = in_array($kind, ['confirmed', 'teleport'], true) ? $utcAttr((string) $m['last']) : '';
 
         if ($m['type'] === 'flight') {
-            printf('<g class="fm-move fm-flight%s" data-move="%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
-                ($guessedOnly ? ' fm-guess' : '') . ($guessedOnly && $hops ? ' fm-hop' : ''), $moveKey, $guessedOnly ? '' : $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
+            $class = ['confirmed' => '', 'suspected' => ' fm-guess', 'hop' => ' fm-guess fm-hop'][$kind];
+            printf('<g class="fm-move fm-flight%s" data-move="%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="2.4" marker-end="url(#fm-arrow-flight)"/></g>',
+                $class, $moveKey, $timed, $h($label), $x1, $y1, $x2, $y2);
         } else {
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
-            printf('<g class="fm-move %s" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#%s)"/></g>',
-                $isTeleport ? 'fm-jump' : ($isPossible ? 'fm-jump fm-maybe' : 'fm-unseen'), $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width,
-                ($isTeleport || $isPossible) ? 'fm-arrow-jump' : 'fm-arrow-flight');
+            $class = ['teleport' => 'fm-jump', 'stuck' => 'fm-jump fm-maybe', 'unseen' => 'fm-unseen'][$kind];
+            printf('<g class="fm-move %s" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="2.4" marker-end="url(#%s)"/></g>',
+                $class, $moveKey, $timed, $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $kind === 'unseen' ? 'fm-arrow-flight' : 'fm-arrow-jump');
         }
     }
 ?>
 				</svg>
+				</div>
 				<script type="text/javascript">
 				// Zoom (mouse wheel, around the cursor), pan (drag) and reset (double-click) the flight map
 				(function () {
@@ -206,25 +190,24 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					A route goes on through a sector when a chain was seen flying through it from the same direction, or when only one way on has ever been seen from it.
 					Where there is more than one way on and nothing to choose between them, the route stops there; more sightings will join them up.
 					Teleports are part of routes. Where it left by a wormhole and flew on unseen, nobody knows which way it went (it may have turned back), so that does not join routes.
-					<i>Italic</i> sectors are where pieces were joined without one chain seen all the way through. Hover a route to show it on the map.</p>
+					<i>Italic</i> sectors are where pieces were joined without one chain seen all the way through.
+					A route is <b>Confirmed</b> when every move on it was seen and a chain was seen through every sector on it; otherwise it is <b>partly suspected</b>. Hover a route to show it on the map.</p>
 				<table class="stats routes">
-					<tr><th>#</th><th>Route</th><th>Heading</th><th>Sectors</th><th>Moves seen</th><th>Universes</th></tr>
+					<tr><th>#</th><th>Route</th><th>Heading</th><th>Sectors</th><th>Status</th></tr>
 					<?php foreach ($stats['routes'] as $i => $rt) {
 						$parts = [];
 						foreach ($rt['sectors'] as $k => $s) {
 							$name = '<a href="' . $h($sectorUrl($mapUni, $s)) . '">' . $h($s) . '</a>';
 							$parts[] = in_array($s, $rt['joined'], true) ? '<i title="pieces joined here">' . $name . '</i>' : $name;
 						}
-						$byUni = [];
-						foreach (Settings::UNIVERSE as $u) { if (isset($rt['unis'][$u])) { $byUni[] = $h($u) . ' ' . $rt['unis'][$u]; } }
+						$confirmed = $rt['guessed'] === 0 && count($rt['joined']) === 0;
 					?>
 					<tr class="fm-route" data-moves="<?= $h(implode(',', $rt['moves'])) ?>">
 						<td><?= $i + 1 ?></td>
-						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a teleport">(teleport)</span>' : '' ?><?= $rt['guessed'] ? ' <span title="moves filled in between sightings, not seen">(' . $rt['guessed'] . ' filled in)</span>' : '' ?></td>
+						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a teleport">(teleport)</span>' : '' ?></td>
 						<td><?= $h($rt['heading'] ?? '-') ?></td>
 						<td><?= count($rt['sectors']) ?></td>
-						<td><?= $rt['seen'] ?></td>
-						<td><?= implode(', ', $byUni) ?></td>
+						<td><?= $confirmed ? '<span class="live">Confirmed</span>' : 'Partly suspected' ?></td>
 					</tr>
 					<?php } ?>
 				</table>
@@ -278,9 +261,8 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 							$dots[] = [$tx, $ty];
 							$marks[] = ['x' => $tx, 'y' => $ty, 'weight' => 0, 'label' => '', 'hidden' => true];
 						}
-						$paths[] = ['colour' => $colour, 'label' => sprintf('%s: %d flyby%s', $label, $d['flybys'], $d['flybys'] === 1 ? '' : 's'), 'lines' => $d['paths'], 'dots' => $dots];
-						$legendRows[] = sprintf('<div><span class="sw" style="background:%s"></span>%s: %d flyby%s%s</div>', $colour, $h($label), $d['flybys'], $d['flybys'] === 1 ? '' : 's',
-							count($d['paths']) ? sprintf(', %d followed', count($d['paths'])) : '');
+						$paths[] = ['colour' => $colour, 'label' => $label, 'lines' => $d['paths'], 'dots' => $dots];
+						$legendRows[] = sprintf('<div><span class="sw" style="background:%s"></span>%s</div>', $colour, $h($label));
 					}
 				?>
 					<div class="card">
