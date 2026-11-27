@@ -47,7 +47,8 @@ class FlightPaths
      * @param string|null $universe one universe, or null for all three
      * @param int|null $nid one serpent (requires $universe)
      * @return array ['moves' => "from|to" => [...], 'sectors' => name => [...], 'jumps' => sector => [...],
-     *                'turns' => sector => from => to => count, 'chains' => int, 'records' => int, 'flybys' => int]
+     *                'turns' => sector => from => to => count, 'tracks' => see tracks(),
+     *                'chains' => int, 'records' => int, 'flybys' => int]
      */
     public static function build(?string $universe = null, ?int $nid = null): array
     {
@@ -66,6 +67,8 @@ class FlightPaths
         $chain = [];  // universe => sectors of its current chain
         $chains = 0;  // chains of 2 or more sectors
         $flybys = 0;
+        $trail = [];  // every flyby: ['sector','from','to','tiles' => [[x, y], ...]]
+        $open = [];   // universe => index in $trail of its current flyby
 
         foreach ($records as $r) {
             $r->ts = (int) strtotime($r->spotted . ' UTC');
@@ -80,8 +83,21 @@ class FlightPaths
             if ($joined && $p->sector === $r->sector && $gap <= self::FLYBY_GAP) {
                 $sectors[$r->sector]['last'] = $r->spotted;
                 $sectors[$r->sector]['active'] = $sectors[$r->sector]['active'] || (int) $r->active === 1;
+                $t = &$trail[$open[$r->uni]]['tiles'];
+                if (end($t) !== [(int) $r->x, (int) $r->y]) {
+                    $t[] = [(int) $r->x, (int) $r->y]; // it moved on within the sector
+                }
+                unset($t);
                 continue;
             }
+
+            // where it went next, for the flyby it just left
+            $moved = $joined && $p->sector !== $r->sector;
+            if ($moved) {
+                $trail[$open[$r->uni]]['to'] = $r->sector;
+            }
+            $trail[] = ['sector' => $r->sector, 'from' => $moved ? $p->sector : null, 'to' => null, 'tiles' => [[(int) $r->x, (int) $r->y]]];
+            $open[$r->uni] = array_key_last($trail);
 
             // a new flyby of this sector
             $flybys++;
@@ -122,7 +138,38 @@ class FlightPaths
         uasort($jumps, static fn ($a, $b) => $b['count'] <=> $a['count']);
 
         return ['moves' => $moves, 'sectors' => $sectors, 'jumps' => $jumps, 'turns' => $turns,
+                'tracks' => self::tracks($trail),
                 'chains' => $chains, 'records' => count($records), 'flybys' => $flybys];
+    }
+
+    /**
+     * The tiles it crossed in each sector, grouped by direction of travel.
+     *
+     * @param array $trail flybys from build()
+     * @return array sector => "from|to" => ['from','to' (null if not seen), 'flybys' => int,
+     *               'paths' => [[[x, y], ...], ...] (flybys seen on 2+ tiles, in order), 'tiles' => "x,y" => count]
+     *               Directions with the most flybys first.
+     */
+    private static function tracks(array $trail): array
+    {
+        $tracks = [];
+        foreach ($trail as $f) {
+            $key = ($f['from'] ?? '') . '|' . ($f['to'] ?? '');
+            $d = $tracks[$f['sector']][$key] ?? ['from' => $f['from'], 'to' => $f['to'], 'flybys' => 0, 'paths' => [], 'tiles' => []];
+            $d['flybys']++;
+            if (count($f['tiles']) > 1) {
+                $d['paths'][] = $f['tiles'];
+            }
+            foreach ($f['tiles'] as [$x, $y]) {
+                $d['tiles'][$x . ',' . $y] = ($d['tiles'][$x . ',' . $y] ?? 0) + 1;
+            }
+            $tracks[$f['sector']][$key] = $d;
+        }
+        foreach ($tracks as &$dirs) {
+            uasort($dirs, static fn ($a, $b) => $b['flybys'] <=> $a['flybys']);
+        }
+
+        return $tracks;
     }
 
     private static function addMove(array &$moves, string $from, string $to, string $type, object $r): void

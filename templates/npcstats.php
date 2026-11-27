@@ -25,9 +25,11 @@ $sectorUrl = static fn (string $u, string $sector): string => $base_url . '/' . 
  * Colour-coded map of the part of a sector around the sightings (terrain, planets/starbases,
  * wormholes from {Universe}_Maps), with the sightings outlined on top.
  * $marks: list of ['x','y','label','weight' 0..1, 'active' (optional), 'utc' (optional: a time in the label),
- *                  'n' (optional: stop number drawn on the tile)]
+ *                  'n' (optional: stop number drawn on the tile), 'hidden' (optional: only used to size the map)]
+ * $paths: optional, drawn on top: list of ['colour', 'label', 'lines' => [[[x, y], ...], ...] (tiles in order),
+ *                  'dots' => [[x, y], ...] (tiles visited)]
  */
-$sectorSvg = static function (string $u, string $sector, ?object $dim, array $marks) use ($h, $utcAttr): string {
+$sectorSvg = static function (string $u, string $sector, ?object $dim, array $marks, array $paths = []) use ($h, $utcAttr): string {
     $crop = TileMap::crop($dim, $marks);
     [$x0, $y0, $x1, $y1] = $crop;
     $cols = $x1 - $x0 + 1;
@@ -57,6 +59,7 @@ $sectorSvg = static function (string $u, string $sector, ?object $dim, array $ma
 
     // sightings
     foreach ($marks as $m) {
+        if (!empty($m['hidden'])) { continue; }
         $opacity = 0.45 + 0.55 * max(0.0, min(1.0, (float) $m['weight']));
         $mx = ((int) $m['x'] - $x0) * $cell;
         $my = ((int) $m['y'] - $y0) * $cell;
@@ -68,6 +71,24 @@ $sectorSvg = static function (string $u, string $sector, ?object $dim, array $ma
             $svg .= sprintf('<text x="%.1f" y="%.1f">%d</text>', $mx + $cell / 2, $my + $cell / 2 + 3, $m['n']);
         }
         $svg .= sprintf('<title%s>%s</title></g>', empty($m['utc']) ? '' : $utcAttr($m['utc']), $h($m['label']));
+    }
+
+    // paths across the tiles: a line per flyby (dot at the start, ring at the end), and a dot on every tile visited
+    $centre = static fn (array $t): array => [((int) $t[0] - $x0 + 0.5) * $cell, ((int) $t[1] - $y0 + 0.5) * $cell];
+    foreach ($paths as $p) {
+        $svg .= sprintf('<g class="mm-path" style="color:%s"><title>%s</title>', $h($p['colour']), $h($p['label']));
+        foreach ($p['dots'] ?? [] as $t) {
+            [$cx, $cy] = $centre($t);
+            $svg .= sprintf('<circle cx="%.1f" cy="%.1f" r="%.1f" class="mm-dot"/>', $cx, $cy, $cell * 0.18);
+        }
+        foreach ($p['lines'] ?? [] as $line) {
+            $pts = array_map($centre, $line);
+            $svg .= '<polyline class="mm-line" points="' . implode(' ', array_map(static fn ($c) => sprintf('%.1f,%.1f', $c[0], $c[1]), $pts)) . '"/>';
+            $svg .= sprintf('<circle cx="%.1f" cy="%.1f" r="%.1f" class="mm-start"/>', $pts[0][0], $pts[0][1], $cell * 0.24);
+            $end = end($pts);
+            $svg .= sprintf('<circle cx="%.1f" cy="%.1f" r="%.1f" class="mm-end"/>', $end[0], $end[1], $cell * 0.3);
+        }
+        $svg .= '</g>';
     }
 
     return $svg . '</svg>';
@@ -116,6 +137,13 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg .fm-live rect { stroke: #00e5ff; stroke-width: 3; }
 			#stats svg .fm-teleport rect { stroke: #b06cf0; stroke-width: 2.5; stroke-dasharray: 6 3; }
 			#stats svg .fm-flight line { stroke: #ff8c1a; stroke-linecap: round; opacity: 0.85; }
+			/* serpent paths across the tiles of a sector (colour set per direction) */
+			#stats svg .mm-path .mm-line { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.8; shape-rendering: geometricPrecision; }
+			#stats svg .mm-path .mm-dot { fill: currentColor; opacity: 0.55; }
+			#stats svg .mm-path .mm-start { fill: currentColor; }
+			#stats svg .mm-path .mm-end { fill: none; stroke: currentColor; stroke-width: 2; }
+			#stats .dirs { text-align: left; margin-top: 3px; }
+			#stats .dirs span.sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
 			/* hovering a route in the routes table shows only its arrows */
 			#stats svg.fm-dim .fm-move { opacity: 0.12; }
 			#stats svg.fm-dim .fm-move.fm-hl { opacity: 1; }

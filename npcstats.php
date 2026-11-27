@@ -160,6 +160,7 @@ if ($view === 'flight') {
     $stats['flight'] = FlightPaths::build(universe: $trailUni, nid: is_null($trailUni) ? null : $nid);
     $stats['layout'] = UniverseMap::layout();
     $stats['routes'] = FlightPaths::routes($stats['flight'], $stats['layout']['sectors']);
+    $stats['dims'] = DB::sector_dims(array_keys($stats['flight']['tracks']));
 }
 
 $title = 'Rare NPC Stats';

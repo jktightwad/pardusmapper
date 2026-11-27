@@ -214,6 +214,49 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				</script>
 				<?php } ?>
 
+				<h3>Paths through sectors</h3>
+				<?php
+				// sectors where it was followed across 2+ tiles first, then the busiest
+				$pathCount = static fn (array $dirs): int => array_sum(array_map(static fn ($d) => count($d['paths']), $dirs));
+				$flybyCount = static fn (array $dirs): int => array_sum(array_column($dirs, 'flybys'));
+				$trackSectors = $flight['tracks'];
+				uasort($trackSectors, static fn ($a, $b) => $pathCount($b) <=> $pathCount($a) ?: $flybyCount($b) <=> $flybyCount($a));
+				$dirColours = ['#ff8c1a', '#00e5ff', '#e05cff', '#7cff6b', '#ffe14d', '#ff4d6d', '#4d8bff'];
+				?>
+				<p class="note">Where it went within each sector, to help find it when it is cloaked or has just gone out of view.
+					Each colour is one direction of travel: the sector it came from and the sector it went to next (? = not seen).
+					A line follows one flyby tile by tile, from the dot to the ring; the smaller dots are every tile it was seen on in that direction.
+					Sectors where it was followed across more than one tile come first.</p>
+				<div class="cards">
+				<?php foreach (array_slice($trackSectors, 0, 30, true) as $secName => $dirs) {
+					$marks = [];
+					$paths = [];
+					$legendRows = [];
+					$i = 0;
+					foreach ($dirs as $d) {
+						$known = !is_null($d['from']) || !is_null($d['to']);
+						$colour = $known ? $dirColours[$i++ % count($dirColours)] : '#9aa7ad';
+						$label = sprintf('%s → %s', $d['from'] ?? '?', $d['to'] ?? '?');
+						$dots = [];
+						foreach ($d['tiles'] as $t => $n) {
+							[$tx, $ty] = array_map('intval', explode(',', $t));
+							$dots[] = [$tx, $ty];
+							$marks[] = ['x' => $tx, 'y' => $ty, 'weight' => 0, 'label' => '', 'hidden' => true];
+						}
+						$paths[] = ['colour' => $colour, 'label' => sprintf('%s: %d flyby%s', $label, $d['flybys'], $d['flybys'] === 1 ? '' : 's'), 'lines' => $d['paths'], 'dots' => $dots];
+						$legendRows[] = sprintf('<div><span class="sw" style="background:%s"></span>%s: %d flyby%s%s</div>', $colour, $h($label), $d['flybys'], $d['flybys'] === 1 ? '' : 's',
+							count($d['paths']) ? sprintf(', %d followed', count($d['paths'])) : '');
+					}
+				?>
+					<div class="card">
+						<div class="sname"><a href="<?= $h($sectorUrl($mapUni, (string) $secName)) ?>"><?= $h($secName) ?></a></div>
+						<?= $sectorSvg($mapUni, (string) $secName, $stats['dims'][$secName] ?? null, $marks, $paths) ?>
+						<div class="dirs"><?= implode('', $legendRows) ?></div>
+					</div>
+				<?php } ?>
+				</div>
+				<?php if (count($trackSectors) > 30) { ?><p class="note">Showing the 30 sectors with the most to show, of <?= count($trackSectors) ?>.</p><?php } ?>
+
 				<h3>Where jumps start</h3>
 				<?php if (count($flight['jumps']) === 0) { ?>
 					<p class="note">No jumps seen yet.</p>
