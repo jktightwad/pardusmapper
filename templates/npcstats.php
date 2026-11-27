@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 use Pardusmapper\Core\Settings;
 use Pardusmapper\FlightPaths;
+use Pardusmapper\SpawnCompare;
 use Pardusmapper\TileMap;
 
 $h = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES);
@@ -117,6 +118,11 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg .fm-flight line { stroke: #ff8c1a; stroke-linecap: round; opacity: 0.85; }
 			#stats svg .fm-jump path { stroke: #b06cf0; fill: none; stroke-dasharray: 8 5; opacity: 0.85; }
 			#stats svg .fm-move:hover line, #stats svg .fm-move:hover path { opacity: 1; stroke: #fff; }
+			/* Compare universes */
+			#stats table.compare td { vertical-align: top; min-width: 170px; }
+			#stats table.compare .app { padding: 1px 0; white-space: nowrap; }
+			#stats table.compare .when { color: #A1A1AF; font-size: 11px; }
+			#stats .match { color: #ffe14d; font-weight: bold; }
 			#stats .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: #A1A1AF; margin: 4px 0 8px; }
 			#stats .legend span.sw { display: inline-block; width: 11px; height: 11px; margin-right: 4px; vertical-align: -1px; border: 1px solid #334649; }
 		</style>
@@ -130,6 +136,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 				<div class="crumbs">
 					<a href="<?= $h($statsUrl) ?>">All tracked NPCs</a>
 					<?php if ($stats['slug']) { ?> &raquo; <a href="<?= $h($statsUrl . '?npc=' . $stats['slug']) ?>"><?= $h($stats['groups'][$stats['slug']]['name']) ?></a><?php } ?>
+					<?php if ($stats['view'] === 'compare') { ?> &raquo; Compare universes<?php } ?>
 					<?php if ($stats['view'] === 'flight') { ?> &raquo; Flight paths<?= $stats['u'] ? ' &raquo; ' . $h($stats['u']) : '' ?><?= ($stats['u'] && $stats['nid']) ? ' ID ' . $h($stats['nid']) : '' ?><?php } ?>
 				</div>
 
@@ -156,6 +163,8 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 
 <?php } elseif ($stats['view'] === 'npc') { ?>
 				<?php $isSerpent = $stats['slug'] === FlightPaths::SLUG; ?>
+				<p class="note"><b><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&compare=1') ?>">Compare the universes over time</a></b>
+					&ndash; Orion, Artemis and Pegasus side by side, and whether it turns up in the same sectors at the same time.</p>
 				<?php if ($isSerpent) { ?>
 					<p class="note"><b>Flight paths on the universe map:</b>
 						<a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&flight=1') ?>">all universes</a>
@@ -166,7 +175,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 					<p class="note">No sightings with an NPC ID yet.</p>
 				<?php } else { ?>
 				<table class="stats">
-					<tr><th>Universe</th><th>NPC ID</th><th>Sightings</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><?= $isSerpent ? '<th>Flight path</th>' : '' ?></tr>
+					<tr><th>Universe</th><th>NPC ID</th><th>Sightings<br />with this ID</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><?= $isSerpent ? '<th>Flight path</th>' : '' ?></tr>
 					<?php foreach ($stats['ids'] as $id) { ?>
 					<tr>
 						<td><?= $h($id['uni']) ?></td>
@@ -181,10 +190,14 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 					<?php } ?>
 				</table>
 				<?php } ?>
-				<?php if (count($stats['noid'])) { ?>
-					<p class="note">Plus sightings without an NPC ID (seen from a distance, or before 2021):
-					<?php $parts = []; foreach ($stats['noid'] as $u => $n) { $parts[] = $h($u) . ' ' . $n; } echo implode(', ', $parts); ?>.
-					They are included in the sector maps below.</p>
+				<?php if (count($stats['totals'])) { ?>
+					<p class="note"><b>All sightings</b>, with or without an ID:
+					<?php $parts = []; foreach (Settings::UNIVERSE as $u) { if (isset($stats['totals'][$u])) { $parts[] = $h($u) . ' ' . $stats['totals'][$u]; } } echo implode(', ', $parts); ?>.
+					<?php if (count($stats['noid'])) { ?>
+					Of these, without an NPC ID (seen from another tile, so no ID was captured):
+					<?php $parts = []; foreach (Settings::UNIVERSE as $u) { if (isset($stats['noid'][$u])) { $parts[] = $h($u) . ' ' . $stats['noid'][$u]; } } echo implode(', ', $parts); ?>.
+					<?php } ?>
+					The sector maps below count all sightings.</p>
 				<?php } ?>
 
 				<h3>Where it has been seen (all IDs, all universes)</h3>
@@ -212,6 +225,82 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 					</div>
 				<?php } ?>
 				</div>
+
+<?php } elseif ($stats['view'] === 'compare') {
+	$base = $statsUrl . '?npc=' . $stats['slug'] . '&compare=1';
+	$windowDays = SpawnCompare::PERIODS[$stats['period']];
+	$periodLabel = static function (string $start, string $period): string {
+		$ts = (int) strtotime($start . ' UTC');
+		return match ($period) {
+			'month' => gmdate('M Y', $ts),
+			'week' => 'Week of ' . gmdate('M j, Y', $ts),
+			default => gmdate('D M j, Y', $ts),
+		};
+	};
+	$pct = static fn (float $f): string => (string) round($f * 100) . '%';
+?>
+				<p class="note">
+					Group by:
+					<?php foreach (array_keys(SpawnCompare::PERIODS) as $p) { ?>
+						<?= $p === $stats['period'] ? '<b>' . $h($p) . '</b>' : '<a href="' . $h($base . '&by=' . $p . ($stats['oldest'] ? '&oldest=1' : '')) . '">' . $h($p) . '</a>' ?>
+					<?php } ?>
+					&nbsp;|&nbsp;
+					<?= $stats['oldest'] ? '<a href="' . $h($base . '&by=' . $stats['period']) . '">newest first</a> | <b>oldest first</b>' : '<b>newest first</b> | <a href="' . $h($base . '&by=' . $stats['period'] . '&oldest=1') . '">oldest first</a>' ?>
+				</p>
+
+				<h3>Do the universes follow each other?</h3>
+				<table class="stats">
+					<tr><th>Universes</th><th>Compared</th><th>Appearances</th><th>Same sector<br />within &plusmn;<?= $windowDays ?> day<?= $windowDays === 1 ? '' : 's' ?></th><th>Same sector<br />at any time</th><th>Same cluster<br />within &plusmn;<?= $windowDays ?> day<?= $windowDays === 1 ? '' : 's' ?></th><th>Typical gap</th><th>Verdict</th></tr>
+					<?php foreach ($stats['pairs'] as $p) { ?>
+					<tr>
+						<td><?= $h($p['a']) ?> &amp; <?= $h($p['b']) ?></td>
+						<td><?= is_null($p['from']) ? '-' : $h(gmdate('M Y', $p['from']) . ' – ' . gmdate('M Y', $p['to'])) ?></td>
+						<td><?= $p['n'] ?></td>
+						<?php if ($p['near'] || $p['ever']) { ?>
+						<td><?= $pct($p['near']) ?></td>
+						<td><?= $pct($p['ever']) ?></td>
+						<td><?= $pct($p['nearCluster']) ?></td>
+						<td><?= is_null($p['lag']) ? '-' : $h(($p['lag'] >= 0 ? $p['b'] . ' ' : $p['a'] . ' ') . SpawnCompare::duration(abs($p['lag'])) . ' later') ?></td>
+						<?php } else { ?>
+						<td>-</td><td>-</td><td>-</td><td>-</td>
+						<?php } ?>
+						<td class="l"><?= $h($p['verdict']) ?></td>
+					</tr>
+					<?php } ?>
+				</table>
+				<p class="note">An <b>appearance</b> is the NPC turning up in a sector: a spawn, or a visit if it moves. Seeing it there again within 2 days is the same appearance.
+					For each pair, every appearance in one universe is checked against the other: is there an appearance in the <b>same sector within &plusmn;<?= $windowDays ?> day<?= $windowDays === 1 ? '' : 's' ?></b>,
+					or in that sector <b>at any time</b>? If the first is close to the second, the universes follow each other in time; if only the second is high, they use the same places but not in step.
+					Only the time both universes have sightings for is compared. Sightings are only recorded when a pilot sees the NPC, so gaps are normal.</p>
+
+				<h3>Side by side</h3>
+				<p class="note">Each row is one <?= $h($stats['period']) ?> (UTC). A sector <span class="match">highlighted like this</span> also shows up in another universe in the same row.</p>
+				<table class="stats compare">
+					<tr><th><?= $h(ucfirst($stats['period'])) ?></th><?php foreach (Settings::UNIVERSE as $u) { ?><th><?= $h($u) ?></th><?php } ?></tr>
+					<?php foreach ($stats['timeline'] as $start => $cols) {
+						// sectors seen in more than one universe in this row
+						$seen = [];
+						foreach ($cols as $u => $list) { foreach ($list as $a) { $seen[$a['sector']][$u] = true; } }
+					?>
+					<tr>
+						<td class="l" style="white-space:nowrap;"><?= $h($periodLabel((string) $start, $stats['period'])) ?></td>
+						<?php foreach (Settings::UNIVERSE as $u) { ?>
+						<td class="l">
+							<?php foreach ($cols[$u] ?? [] as $a) {
+								$match = count($seen[$a['sector']]) > 1;
+								$ids = array_keys($a['ids']);
+								$tip = sprintf('%d sighting%s%s', $a['sightings'], $a['sightings'] === 1 ? '' : 's', $ids ? ', ID ' . implode(', ', $ids) : '');
+							?>
+							<div class="app" title="<?= $h($tip) ?>">
+								<a href="<?= $h($sectorUrl($u, $a['sector'])) ?>"<?= $match ? ' class="match"' : '' ?>><?= $h($a['sector']) ?></a> [<?= $a['x'] ?>,<?= $a['y'] ?>]
+								<span class="when"><?= $when(gmdate('Y-m-d H:i:s', $a['first'])) ?></span>
+							</div>
+							<?php } ?>
+						</td>
+						<?php } ?>
+					</tr>
+					<?php } ?>
+				</table>
 
 <?php } else { /* flight */ ?>
 				<?php require templates('flightmap'); ?>
