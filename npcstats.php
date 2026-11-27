@@ -48,8 +48,9 @@ if (!is_null($slug)) {
 // keep every value the template needs in one place
 $stats = ['view' => $view, 'slug' => $slug, 'groups' => $groups, 'u' => $trailUni, 'nid' => $nid];
 
-/** Later of two datetime strings (either may be null). */
-$later = static fn (?string $a, ?string $b): ?string => (is_null($a) || (!is_null($b) && strcmp($b, $a) > 0)) ? $b : $a;
+// All dates are when a record was added (`spotted`), never `updated`: that is overwritten when
+// the NPC is reported gone. Rows come back oldest first, so the last row seen is the latest.
+// Counting rules (2-hour de-duplication) live in NPC::mark_sightings() and NPC::new_tile_visit().
 
 if ($view === 'overview') {
     $all = [];
@@ -59,17 +60,21 @@ if ($view === 'overview') {
 
     $summary = [];
     foreach ($groups as $s => $g) {
-        $summary[$s] = ['name' => $g['name'], 'total' => 0, 'ids' => [], 'noid' => 0, 'active' => 0, 'first' => null, 'last' => null, 'sectors' => []];
+        $summary[$s] = ['name' => $g['name'], 'sightings' => 0, 'records' => 0, 'ids' => [], 'noid' => 0, 'active' => 0, 'first' => null, 'last' => null, 'sectors' => []];
     }
-    foreach (DB::npc_sightings(images: $all) as $r) {
+    foreach (NPC::mark_sightings(DB::npc_sightings(images: $all)) as $r) {
         $s = $imageToSlug[$r->image] ?? null;
         if (is_null($s)) { continue; }
         $row = &$summary[$s];
-        $row['total']++;
-        if (is_null($r->nid)) { $row['noid']++; } else { $row['ids'][$r->uni][(int) $r->nid] = true; }
+        $row['records']++;
+        if ($r->counted) {
+            $row['sightings']++;
+            if (is_null($r->nid)) { $row['noid']++; }
+        }
+        if (!is_null($r->nid)) { $row['ids'][$r->uni][(int) $r->nid] = true; }
         if ((int) $r->active === 1) { $row['active']++; }
-        if (is_null($row['first']) || strcmp((string) $r->spotted, (string) $row['first']) < 0) { $row['first'] = $r->spotted; }
-        $row['last'] = $later($row['last'], $r->last_seen);
+        $row['first'] ??= $r->spotted;
+        $row['last'] = $r->spotted;
         $row['sectors'][$r->sector] = true;
         unset($row);
     }
@@ -78,28 +83,35 @@ if ($view === 'overview') {
 
 if ($view === 'npc') {
     $ids = [];      // "Uni|nid" => [...]
-    $noid = [];     // Uni => count
+    $noid = [];     // Uni => separate sightings without an ID
     $sectors = [];  // sector => [...]
+    $visitState = [];
 
-    foreach (DB::npc_sightings(images: $groups[$slug]['images']) as $r) {
+    foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'])) as $r) {
         if (!is_null($r->nid)) {
             $key = $r->uni . '|' . $r->nid;
-            $id = $ids[$key] ?? ['uni' => $r->uni, 'nid' => (int) $r->nid, 'total' => 0, 'sectors' => [], 'first' => $r->spotted, 'last' => null, 'active' => 0, 'where' => null];
-            $id['total']++;
+            $id = $ids[$key] ?? ['uni' => $r->uni, 'nid' => (int) $r->nid, 'sightings' => 0, 'prev' => null, 'sectors' => [], 'first' => $r->spotted, 'last' => null, 'active' => 0, 'where' => null];
+            // this ID's own sightings: its records more than 2 hours apart
+            if (is_null($id['prev']) || ($r->ts - $id['prev']) >= NPC::SIGHTING_GAP) { $id['sightings']++; }
+            $id['prev'] = $r->ts;
             $id['sectors'][$r->sector] = true;
-            $id['last'] = $later($id['last'], $r->last_seen);
-            if ((int) $r->active === 1) { $id['active']++; }
-            $id['where'] = sprintf('%s [%d,%d]', $r->sector, $r->x, $r->y); // rows are oldest first, so this ends as the latest
+            $id['last'] = $r->spotted;
+            $id['active'] = (int) $r->active;
+            $id['where'] = sprintf('%s [%d,%d]', $r->sector, $r->x, $r->y);
             $ids[$key] = $id;
-        } else {
+        } elseif ($r->counted) {
             $noid[$r->uni] = ($noid[$r->uni] ?? 0) + 1;
         }
 
-        $sec = $sectors[$r->sector] ?? ['total' => 0, 'ids' => [], 'unis' => [], 'last' => null, 'tiles' => []];
+        // sector cards count visits per tile (same NPC, same tile, under 2 hours apart = one visit)
+        if (!NPC::new_tile_visit($visitState, $r)) {
+            continue;
+        }
+        $sec = $sectors[$r->sector] ?? ['total' => 0, 'ids' => [], 'unis' => [], 'last' => null, 'tiles' => [], 'live' => []];
         $sec['total']++;
         if (!is_null($r->nid)) { $sec['ids'][$r->uni . '|' . $r->nid] = true; }
         $sec['unis'][$r->uni] = ($sec['unis'][$r->uni] ?? 0) + 1;
-        $sec['last'] = $later($sec['last'], $r->last_seen);
+        $sec['last'] = $r->spotted;
         $tile = $r->x . ',' . $r->y;
         $sec['tiles'][$tile] = ($sec['tiles'][$tile] ?? 0) + 1;
         if ((int) $r->active === 1) { $sec['live'][$tile] = true; }
@@ -117,17 +129,31 @@ if ($view === 'npc') {
 }
 
 if ($view === 'trail') {
-    // Consecutive sightings in the same sector become one step of the trail
+    // Consecutive records in the same sector become one step of the trail.
+    // Repeats on the same tile under 2 hours apart (flickering in and out of view) are skipped.
     $steps = [];
-    foreach (DB::npc_sightings(images: $groups[$slug]['images'], universe: $trailUni, nid: $nid) as $r) {
+    $visitState = [];
+    foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'], universe: $trailUni, nid: $nid)) as $r) {
+        if (!NPC::new_tile_visit($visitState, $r)) {
+            if ((int) $r->active === 1 && count($steps)) {
+                // a skipped repeat can still be the live record: mark its tile as "there now"
+                $last = count($steps) - 1;
+                $steps[$last]['active'] = 1;
+                foreach ($steps[$last]['points'] as &$pt) {
+                    if ($pt['x'] === (int) $r->x && $pt['y'] === (int) $r->y) { $pt['active'] = 1; }
+                }
+                unset($pt);
+            }
+            continue;
+        }
         $last = count($steps) - 1;
         if ($last < 0 || $steps[$last]['sector'] !== $r->sector) {
-            $steps[] = ['sector' => $r->sector, 'from' => $r->spotted, 'to' => $r->last_seen, 'points' => [], 'active' => 0];
+            $steps[] = ['sector' => $r->sector, 'from' => $r->spotted, 'to' => $r->spotted, 'points' => [], 'active' => 0];
             $last++;
         }
-        $steps[$last]['points'][] = ['x' => (int) $r->x, 'y' => (int) $r->y, 'spotted' => $r->spotted, 'last' => $r->last_seen, 'active' => (int) $r->active];
-        $steps[$last]['to'] = $later($steps[$last]['to'], $r->last_seen);
-        $steps[$last]['active'] += (int) $r->active;
+        $steps[$last]['points'][] = ['x' => (int) $r->x, 'y' => (int) $r->y, 'spotted' => $r->spotted, 'active' => (int) $r->active];
+        $steps[$last]['to'] = $r->spotted;
+        $steps[$last]['active'] = max($steps[$last]['active'], (int) $r->active);
     }
 
     $stats['steps'] = $steps;

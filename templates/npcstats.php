@@ -8,15 +8,19 @@ declare(strict_types=1);
 /** @var array $stats */
 
 $h = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES);
-$day = static fn (?string $d): string => is_null($d) ? '-' : substr($d, 0, 16);
+// Database times are UTC. Each is printed as "YYYY-MM-DD HH:MM UTC" and rewritten to the viewer's
+// local time by pmLocalizeTimes() (resources/main.js) when the page loads.
+$utcAttr = static fn (string $d): string => sprintf(' data-utc="%sZ" data-utc-text="%s UTC"', str_replace(' ', 'T', substr($d, 0, 19)), substr($d, 0, 16));
+$utcText = static fn (string $d): string => substr($d, 0, 16) . ' UTC';
+$when = static fn (?string $d): string => is_null($d) ? '-' : '<span' . $utcAttr($d) . '>' . $utcText($d) . '</span>';
 $statsUrl = $base_url . '/' . $uni . '/npcstats';
 $sectorUrl = static fn (string $u, string $sector): string => $base_url . '/' . $u . '/' . rawurlencode($sector);
 
 /**
  * Small SVG of a sector grid with marked tiles.
- * $marks: list of ['x','y','label','weight' 0..1,'text' (optional number shown on the tile)]
+ * $marks: list of ['x','y','label','weight' 0..1, 'active' (optional), 'utc' (optional: a time in the label)]
  */
-$sectorSvg = static function (?object $dim, array $marks) use ($h): string {
+$sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): string {
     $cell = 7;
     $cols = $dim ? max(1, (int) $dim->cols) : 1 + max(array_column($marks, 'x') ?: [0]);
     $rows = $dim ? max(1, (int) $dim->rows) : 1 + max(array_column($marks, 'y') ?: [0]);
@@ -27,8 +31,9 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
     foreach ($marks as $m) {
         $opacity = 0.35 + 0.65 * max(0.0, min(1.0, (float) $m['weight']));
         $svg .= sprintf(
-            '<rect x="%d" y="%d" width="%d" height="%d" class="mm-mark%s" fill-opacity="%.2f"><title>%s</title></rect>',
-            $m['x'] * $cell, $m['y'] * $cell, $cell, $cell, empty($m['active']) ? '' : ' mm-active', $opacity, $h($m['label'])
+            '<rect x="%d" y="%d" width="%d" height="%d" class="mm-mark%s" fill-opacity="%.2f"><title%s>%s</title></rect>',
+            $m['x'] * $cell, $m['y'] * $cell, $cell, $cell, empty($m['active']) ? '' : ' mm-active', $opacity,
+            empty($m['utc']) ? '' : $utcAttr($m['utc']), $h($m['label'])
         );
     }
     return $svg . '</svg>';
@@ -74,23 +79,25 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 
 <?php if ($stats['view'] === 'overview') { ?>
 				<table class="stats">
-					<tr><th>NPC</th><th>Sightings</th><th>Unique IDs<br />Orion / Artemis / Pegasus</th><th>Sightings<br />without ID</th><th>Sectors</th><th>Seen now</th><th>First seen</th><th>Last reported</th></tr>
+					<tr><th>NPC</th><th>Sightings</th><th>Unique IDs<br />Orion / Artemis / Pegasus</th><th>Sightings<br />without ID</th><th>Sectors</th><th>Seen now</th><th>First seen</th><th>Last seen</th></tr>
 					<?php foreach ($stats['summary'] as $s => $row) { ?>
 					<tr>
 						<td class="l"><a href="<?= $h($statsUrl . '?npc=' . $s) ?>"><?= $h($row['name']) ?></a></td>
-						<td><?= $row['total'] ?></td>
+						<td title="<?= $row['records'] ?> raw records"><?= $row['sightings'] ?></td>
 						<td><?= count($row['ids']['Orion'] ?? []) ?> / <?= count($row['ids']['Artemis'] ?? []) ?> / <?= count($row['ids']['Pegasus'] ?? []) ?></td>
 						<td><?= $row['noid'] ?></td>
 						<td><?= count($row['sectors']) ?></td>
 						<td><?= $row['active'] ? '<span class="live">' . $row['active'] . '</span>' : '0' ?></td>
-						<td><?= $h($day($row['first'])) ?></td>
-						<td><?= $h($day($row['last'])) ?></td>
+						<td><?= $when($row['first']) ?></td>
+						<td><?= $when($row['last']) ?></td>
 					</tr>
 					<?php } ?>
 				</table>
-				<p class="note">A sighting is one stay on one tile: it starts when a pilot's mapper script first sees the NPC there and ends when someone sees it gone.
-					"Unique IDs" counts distinct Pardus NPC IDs, which the script has recorded since early 2021; older sightings have no ID.
-					"Seen now" is how many sightings have not yet been reported gone. Pick an NPC for its IDs and where it has been seen.</p>
+				<p class="note">The mapper adds a record each time a pilot's script first sees one of these NPCs on a tile. A moving or flickering NPC makes many records,
+					so <b>Sightings</b> only counts a record if the same NPC had no record in that universe in the 2 hours before it (hover a number for the raw record count).
+					The NPC ID is only recorded when a pilot stands on its tile; records without an ID are not counted if any record of that NPC came less than 2 hours before.
+					IDs have been recorded since early 2021. All times are when the NPC was first seen on a tile, shown in your local time.
+					"Seen now" is how many have not yet been reported gone.</p>
 
 <?php } elseif ($stats['view'] === 'npc') { ?>
 				<h3>Unique NPC IDs</h3>
@@ -98,29 +105,30 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 					<p class="note">No sightings with an NPC ID yet.</p>
 				<?php } else { ?>
 				<table class="stats">
-					<tr><th>Universe</th><th>NPC ID</th><th>Sightings</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last reported</th><th>Trail</th></tr>
+					<tr><th>Universe</th><th>NPC ID</th><th>Sightings</th><th>Sectors</th><th>Last seen at</th><th>First seen</th><th>Last seen</th><th>Trail</th></tr>
 					<?php foreach ($stats['ids'] as $id) { ?>
 					<tr>
 						<td><?= $h($id['uni']) ?></td>
 						<td><?= $id['nid'] ?></td>
-						<td><?= $id['total'] ?></td>
+						<td><?= $id['sightings'] ?></td>
 						<td><?= count($id['sectors']) ?></td>
 						<td class="l"><?= $h($id['where']) ?><?= $id['active'] ? ' <span class="live">(seen now)</span>' : '' ?></td>
-						<td><?= $h($day($id['first'])) ?></td>
-						<td><?= $h($day($id['last'])) ?></td>
+						<td><?= $when($id['first']) ?></td>
+						<td><?= $when($id['last']) ?></td>
 						<td><a href="<?= $h($statsUrl . '?npc=' . $stats['slug'] . '&u=' . $id['uni'] . '&nid=' . $id['nid']) ?>">View trail</a></td>
 					</tr>
 					<?php } ?>
 				</table>
 				<?php } ?>
 				<?php if (count($stats['noid'])) { ?>
-					<p class="note">Plus sightings recorded before NPC IDs were collected:
+					<p class="note">Plus sightings without an NPC ID (seen from a distance, or before 2021):
 					<?php $parts = []; foreach ($stats['noid'] as $u => $n) { $parts[] = $h($u) . ' ' . $n; } echo implode(', ', $parts); ?>.
 					They are included in the sector maps below.</p>
 				<?php } ?>
 
 				<h3>Where it has been seen (all IDs, all universes)</h3>
-				<p class="note">Busiest sectors first. Brighter tiles have more sightings; green tiles have one there now. Click a sector name to open its map.</p>
+				<p class="note">Busiest sectors first. Numbers are visits to a tile (the same NPC on the same tile less than 2 hours apart is one visit).
+					Brighter tiles have more visits; green tiles have one there now. Click a sector name to open its map.</p>
 				<div class="cards">
 				<?php foreach ($stats['sectors'] as $name => $sec) {
 					$max = max($sec['tiles']);
@@ -129,7 +137,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 						[$tx, $ty] = array_map('intval', explode(',', $tile));
 						$live = isset($sec['live'][$tile]);
 						$marks[] = ['x' => $tx, 'y' => $ty, 'weight' => $max > 1 ? ($n - 1) / ($max - 1) : 1, 'active' => $live,
-							'label' => sprintf('[%d,%d] %d sighting%s%s', $tx, $ty, $n, $n === 1 ? '' : 's', $live ? ', there now' : '')];
+							'label' => sprintf('[%d,%d] %d visit%s%s', $tx, $ty, $n, $n === 1 ? '' : 's', $live ? ', there now' : '')];
 					}
 					$byUni = [];
 					foreach ($sec['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
@@ -137,9 +145,9 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 					<div class="card">
 						<div class="sname"><a href="<?= $h($sectorUrl($uni, (string) $name)) ?>"><?= $h($name) ?></a></div>
 						<?= $sectorSvg($stats['dims'][$name] ?? null, $marks) ?>
-						<?= $sec['total'] ?> sighting<?= $sec['total'] === 1 ? '' : 's' ?>, <?= count($sec['ids']) ?> ID<?= count($sec['ids']) === 1 ? '' : 's' ?><br />
+						<?= $sec['total'] ?> visit<?= $sec['total'] === 1 ? '' : 's' ?>, <?= count($sec['ids']) ?> ID<?= count($sec['ids']) === 1 ? '' : 's' ?><br />
 						<?= $h(implode(', ', $byUni)) ?><br />
-						last <?= $h(substr((string) $sec['last'], 0, 10)) ?>
+						last seen <?= $when($sec['last']) ?>
 					</div>
 				<?php } ?>
 				</div>
@@ -148,22 +156,22 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 				<?php if (count($stats['steps']) === 0) { ?>
 					<p class="note">No sightings found for this NPC ID.</p>
 				<?php } else { ?>
-				<p class="note">Sectors in the order this NPC was seen in them. Within a sector, later stops are brighter; hover a tile for its order and dates. Green means it is there now.</p>
+				<p class="note">Sectors in the order this NPC was seen in them. Within a sector, later stops are brighter; hover a tile for its order and when it was first seen there. Green means it is there now. Times are your local time.</p>
 				<div class="cards">
 				<?php foreach ($stats['steps'] as $i => $step) {
 					$count = count($step['points']);
 					$marks = [];
 					foreach ($step['points'] as $p => $pt) {
-						$marks[] = ['x' => $pt['x'], 'y' => $pt['y'], 'weight' => $count > 1 ? $p / ($count - 1) : 1, 'active' => $pt['active'],
-							'label' => sprintf('#%d [%d,%d] %s to %s', $p + 1, $pt['x'], $pt['y'], substr((string) $pt['spotted'], 0, 16), substr((string) $pt['last'], 0, 16))];
+						$marks[] = ['x' => $pt['x'], 'y' => $pt['y'], 'weight' => $count > 1 ? $p / ($count - 1) : 1, 'active' => $pt['active'], 'utc' => $pt['spotted'],
+							'label' => sprintf('#%d [%d,%d] first seen %s%s', $p + 1, $pt['x'], $pt['y'], $utcText($pt['spotted']), $pt['active'] ? ', still there' : '')];
 					}
 				?>
 					<?php if ($i > 0) { ?><span class="arrow">&rarr;</span><?php } ?>
 					<div class="card">
 						<div class="sname"><?= $i + 1 ?>. <a href="<?= $h($sectorUrl($stats['u'], $step['sector'])) ?>"><?= $h($step['sector']) ?></a></div>
 						<?= $sectorSvg($stats['dims'][$step['sector']] ?? null, $marks) ?>
-						<?= $count ?> tile<?= $count === 1 ? '' : 's' ?><?= $step['active'] ? ' <span class="live">here now</span>' : '' ?><br />
-						<?= $h(substr((string) $step['from'], 0, 10)) ?> to <?= $h(substr((string) $step['to'], 0, 10)) ?>
+						<?= $count ?> stop<?= $count === 1 ? '' : 's' ?><?= $step['active'] ? ' <span class="live">here now</span>' : '' ?><br />
+						<?= $when($step['from']) ?><?= $step['to'] !== $step['from'] ? ' to ' . $when($step['to']) : '' ?>
 					</div>
 				<?php } ?>
 				</div>
@@ -173,5 +181,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h): string {
 			</center>
 		</div>
 		<div id="footer"><?php require_once(templates('footer')); ?></div>
+		<script type="text/javascript" src="<?= $base_url; ?>/resources/main.js"></script>
+		<script type="text/javascript">if (typeof pmLocalizeTimes === 'function') { pmLocalizeTimes(document); }</script>
 	</body>
 </html>

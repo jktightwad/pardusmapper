@@ -139,3 +139,27 @@ function getDetailedInfo(uri,uni,id) {
 }
 
 
+
+/**
+ * Show server (UTC) times in the viewer's local time zone.
+ * Elements carry data-utc="2026-11-20T10:00:00Z" and data-utc-text="2026-11-20 10:00 UTC";
+ * the UTC text is replaced in the title attribute (tooltips) or, if there is none, in the text.
+ * Elements without JavaScript just keep showing the UTC text.
+ */
+function pmLocalizeTimes(root) {
+	root = root || document;
+	var els = root.querySelectorAll('[data-utc]');
+	for (var i = 0; i < els.length; i++) {
+		var el = els[i];
+		var when = new Date(el.getAttribute('data-utc'));
+		var utcText = el.getAttribute('data-utc-text');
+		if (isNaN(when.getTime()) || !utcText) { continue; }
+		var local = when.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+		if (el.hasAttribute('title')) {
+			el.setAttribute('title', el.getAttribute('title').split(utcText).join(local));
+		} else {
+			el.textContent = el.textContent.split(utcText).join(local);
+		}
+		el.removeAttribute('data-utc');
+	}
+}

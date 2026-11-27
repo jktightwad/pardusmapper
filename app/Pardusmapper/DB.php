@@ -854,50 +854,6 @@ class DB
     }
 
     /**
-     * Sighting history for one sector, combined across all universes.
-     *
-     * {Universe}_Test_Npcs keeps one row per sighting (deleted = 1 once it is gone), and
-     * all universes share the same map, so rows from every universe are grouped per tile.
-     *
-     * @param string $sector sector name
-     * @param array $images NPC images to include (see NPC::HISTORY)
-     * @return array list of objects: uni, x, y, image, total, last_seen
-     */
-    public static function npc_history(string $sector, array $images): array
-    {
-        if (count($images) === 0) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($images), '?'));
-
-        $parts = [];
-        $params = [''];
-        foreach (Settings::UNIVERSE as $universe) {
-            $parts[] = sprintf(
-                "SELECT '%s' AS uni, x, y, image, COUNT(*) AS total, MAX(COALESCE(updated, spotted)) AS last_seen
-                FROM %s_Test_Npcs
-                WHERE sector = ? AND image IN (%s) AND x IS NOT NULL AND y IS NOT NULL
-                GROUP BY x, y, image",
-                $universe, $universe, $placeholders
-            );
-            $params[0] .= str_repeat('s', count($images) + 1);
-            $params[] = $sector;
-            array_push($params, ...array_values($images));
-        }
-
-        $db = MySqlDB::instance();
-        $db->execute(implode(' UNION ALL ', $parts), $params);
-
-        $rows = [];
-        while ($row = $db->fetchObject()) {
-            $rows[] = $row;
-        }
-
-        return $rows;
-    }
-
-    /**
      * Grid size of several sectors in one query.
      *
      * @param array $names sector names
@@ -925,17 +881,24 @@ class DB
     }
 
     /**
-     * Raw sightings of the given NPC images across universes, oldest first.
+     * Raw NPC records for the given images across universes, oldest first.
+     *
+     * {Universe}_Test_Npcs gets one row each time an NPC is first seen on a tile (`spotted`).
+     * `updated` is NOT a "last seen" time: npc_remove overwrites it with the moment someone
+     * saw the tile empty. So callers should date sightings by `spotted`; `last_seen` is only
+     * meaningful for rows still active (NPC not yet reported gone).
+     * See NPC::mark_sightings() for turning records into de-duplicated sightings.
      *
      * Uses the image_nid (image, nid) index on {Universe}_Test_Npcs, so it only touches the
-     * tracked rows (a few thousand) rather than the millions of other NPC sightings.
+     * tracked rows (a few thousand) rather than the millions of other NPC records.
      *
      * @param array $images NPC images (see NPC::HISTORY)
      * @param string|null $universe limit to one universe
      * @param int|null $nid limit to one NPC id (requires $universe)
+     * @param string|null $sector limit to one sector
      * @return array list of objects: uni, nid, sector, x, y, image, spotted, last_seen, active
      */
-    public static function npc_sightings(array $images, ?string $universe = null, ?int $nid = null): array
+    public static function npc_sightings(array $images, ?string $universe = null, ?int $nid = null, ?string $sector = null): array
     {
         if (count($images) === 0) {
             return [];
@@ -958,11 +921,17 @@ class DB
                         COALESCE(updated, spotted) AS last_seen,
                         CASE WHEN deleted IS NULL OR deleted = 0 THEN 1 ELSE 0 END AS active
                 FROM %s_Test_Npcs
-                WHERE image IN (%s) AND sector IS NOT NULL",
+                WHERE image IN (%s) AND sector IS NOT NULL AND x IS NOT NULL AND y IS NOT NULL AND spotted IS NOT NULL",
                 $u, $u, $placeholders
             );
             $params[0] .= str_repeat('s', count($images));
             array_push($params, ...array_values($images));
+
+            if (!is_null($sector)) {
+                $sql .= ' AND sector = ?';
+                $params[0] .= 's';
+                $params[] = $sector;
+            }
 
             if (!is_null($nid)) {
                 $sql .= ' AND nid = ?';

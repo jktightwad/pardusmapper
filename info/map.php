@@ -63,22 +63,30 @@ while ($q = $dbClass->fetchObject()) {
 }
 
 // Rare NPC sighting history, combined across all universes (logged-in users only)
-// $hist[x][y] = ['total' => int, 'last' => datetime, 'image' => latest image, 'title' => tooltip]
+// Times come from when the record was added (`spotted`); `updated` is overwritten when the NPC
+// is reported gone, so it is not a "last seen" time. Records of the same NPC on the same tile
+// less than 2 hours apart count as one visit (see NPC::new_tile_visit).
+// $hist[x][y] = ['total' => visits, 'last' => datetime, 'image' => latest image, 'title' => tooltip]
 $hist = [];
 if ($history && isset($_SESSION['user'])) {
     $tracked = NPC::HISTORY;
     $tiles = [];
+    $visitState = [];
 
-    foreach (DB::npc_history(sector: $s->name, images: array_keys($tracked)) as $row) {
+    $records = NPC::mark_sightings(DB::npc_sightings(images: array_keys($tracked), sector: $s->name));
+    foreach ($records as $row) {
+        if (!NPC::new_tile_visit($visitState, $row)) {
+            continue;
+        }
         $hx = (int) $row->x;
         $hy = (int) $row->y;
         $label = $tracked[$row->image] ?? $row->image;
         $tile = $tiles[$hx][$hy] ?? ['total' => 0, 'last' => null, 'image' => null, 'npcs' => []];
 
-        $tile['total'] += (int) $row->total;
-        $tile['npcs'][$label][$row->uni] = ($tile['npcs'][$label][$row->uni] ?? 0) + (int) $row->total;
-        if (is_null($tile['last']) || strcmp((string) $row->last_seen, (string) $tile['last']) > 0) {
-            $tile['last'] = $row->last_seen;
+        $tile['total']++;
+        $tile['npcs'][$label][$row->uni] = ($tile['npcs'][$label][$row->uni] ?? 0) + 1;
+        if (is_null($tile['last']) || strcmp((string) $row->spotted, (string) $tile['last']) > 0) {
+            $tile['last'] = $row->spotted;
             $tile['image'] = $row->image;
         }
 
@@ -91,9 +99,13 @@ if ($history && isset($_SESSION['user'])) {
             foreach ($tile['npcs'] as $label => $perUni) {
                 $byUni = [];
                 foreach ($perUni as $u => $n) { $byUni[] = $u . ' ' . $n; }
-                $lines[] = sprintf('%s x%d (%s)', $label, array_sum($perUni), implode(', ', $byUni));
+                $n = array_sum($perUni);
+                $lines[] = sprintf('%s seen here %d time%s (%s)', $label, $n, $n === 1 ? '' : 's', implode(', ', $byUni));
             }
-            $lines[] = 'Last reported ' . substr((string) $tile['last'], 0, 10);
+            // shown in the viewer's local time by pmLocalizeTimes() in resources/main.js
+            $tile['utc'] = str_replace(' ', 'T', substr((string) $tile['last'], 0, 19)) . 'Z';
+            $tile['utc_text'] = substr((string) $tile['last'], 0, 16) . ' UTC';
+            $lines[] = 'Last seen ' . $tile['utc_text'];
             $tile['title'] = implode("\n", $lines);
             $hist[$hx][$hy] = $tile;
 
@@ -207,7 +219,9 @@ for ($y = 0;$y < $s->rows;$y++) {
                         if ($map->npc_cloaked == 1) { $npc_id .= 'Cloak'; }
                         if (isset($map->is_history)) { $npc_id .= ' history-npc'; }
 
-                        $hist_title = isset($hist[$x][$y]) ? ' title="' . htmlspecialchars($hist[$x][$y]['title']) . '"' : '';
+                        $hist_title = isset($hist[$x][$y])
+                            ? ' title="' . htmlspecialchars($hist[$x][$y]['title']) . '" data-utc="' . htmlspecialchars($hist[$x][$y]['utc']) . '" data-utc-text="' . htmlspecialchars($hist[$x][$y]['utc_text']) . '"'
+                            : '';
                         $return .= '<div style="position:relative; display:inline-block; vertical-align:top;"' . $hist_title . '>';
                         $return .= '<img class="' . $npc_id . '" src="' . $npc_img . '" alt="' . $npc_diff['string'] . '" />';
 

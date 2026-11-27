@@ -84,6 +84,7 @@ declare(strict_types=1);
 					if (maphttp.readyState == 4) {
 						var el = document.getElementById("sectorMapDiv");
 						el.innerHTML = maphttp.responseText;
+						if (typeof pmLocalizeTimes === 'function') { pmLocalizeTimes(el); }
 						el.style.width = document.getElementById("sectorTableMap").clientWidth + "px";
 						el.style.height = document.getElementById("sectorTableMap").clientHeight + "px";
 					}
