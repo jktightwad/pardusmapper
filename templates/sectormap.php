@@ -108,24 +108,50 @@ declare(strict_types=1);
 				}
 				maphttp.send(params);
 			}
-			// Size the map box to the map. The cluster minimap is fixed to the right edge of the window,
-			// so if a wide sector (e.g. Pardus) would run underneath it, stop the box at the minimap's
-			// left edge and let the map scroll inside it (both ways, so the scrollbars stay on screen).
+			// Size and place the map box. The side menu is fixed to the left edge and the cluster minimap
+			// to the right edge of the window. The box starts just right of the menu, and if a wide sector
+			// (e.g. Pardus) would run underneath the minimap, the box stops at the minimap's left edge and
+			// the map scrolls inside it (both ways, so the scrollbars stay on screen).
+			// Pardus Core sectors, and any sector too wide to fit beside the minimap, are drawn at 70% size.
+			var PM_MAP_SCALE = 0.7;
+			var PM_SHRINK_CLUSTER = <?php echo json_encode(($code ?? '') === 'CORE'); ?>;
 			function fitMapBesideMinimap() {
 				var el = document.getElementById("sectorMapDiv");
 				var table = document.getElementById("sectorTableMap");
 				if (!el || !table) { return; }
-				var w = table.clientWidth, h = table.clientHeight;
-				el.style.width = w + "px";
-				el.style.height = h + "px";
+				var w, h;
+				function sizeBoxToMap() {
+					var r = table.getBoundingClientRect(); // includes the zoom, if any
+					w = Math.ceil(r.width);
+					h = Math.ceil(r.height);
+					el.style.width = w + "px";
+					el.style.height = h + "px";
+				}
+				table.style.zoom = "";
+				sizeBoxToMap();
 				el.style.overflow = "";
 				el.style.paddingTop = "";
 				el.style.top = "";
+				el.style.left = "";
+
+				// The side menu is fixed to the left edge of the window; start the map box just right of it.
+				var menu = document.getElementById("header_side");
+				if (menu) {
+					var gap = menu.getBoundingClientRect().right + 4 - el.getBoundingClientRect().left;
+					if (gap > 0) {
+						el.style.left = ((parseFloat(window.getComputedStyle(el).left) || 0) + gap) + "px";
+					}
+				}
 
 				var minimap = document.getElementById("clusterMapDiv");
 				var limit = minimap ? minimap.getBoundingClientRect().left : window.innerWidth;
 				var box = el.getBoundingClientRect();
 				var available = limit - box.left - 6;
+				if (PM_SHRINK_CLUSTER || box.width > available) {
+					table.style.zoom = PM_MAP_SCALE;
+					sizeBoxToMap();
+					box = el.getBoundingClientRect();
+				}
 				if (box.width <= available || available < 300) { return; } // fits, or window too narrow to help
 
 				// The top padding holds the options bar. Move the box down by that much instead (via its
