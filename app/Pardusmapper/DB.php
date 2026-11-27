@@ -222,46 +222,6 @@ class DB
     }
 
     /**
-     * Update NPC on map
-     *
-     * @param string $universe
-     * @param string $image
-     * @param integer $id
-     * @param integer $cloaked
-     * @param integer|null $nid
-     * @return boolean
-     */
-    public static function map_update_npc(string $universe, string $image, int $id, int $cloaked, ?int $nid = null): bool
-    {
-        debug(__METHOD__, func_get_args());
-
-        $npc_cloacked = $cloaked ? 1 : null;
-
-        $db = MySqlDB::instance();
-
-        // Update map tile
-        // REVIEW
-        // the initial code was only updating the image if uncloaked
-        // not sure i understand why yet
-        // TODO maybe add an if/else here if needed
-        $db->execute(sprintf('UPDATE %s_Maps SET `npc` = ?, `npc_cloaked` = ?, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
-            'sii', $image, $npc_cloacked, $id
-        ]);
-
-        $db->execute(sprintf('UPDATE %s_Test_Npcs SET `cloaked` = ?, `updated` = UTC_TIMESTAMP() WHERE (deleted IS NULL OR deleted = 0) AND id = ?', $universe), [
-            'ii', $npc_cloacked, $id
-        ]);
-        
-        if (!is_null($nid)) {
-            $db->execute(sprintf('UPDATE %s_Test_Npcs SET `nid` = ?, `updated` = UTC_TIMESTAMP() WHERE (deleted IS NULL OR deleted = 0) AND id = ?', $universe), [
-                'ii', $nid, $id
-            ]);
-        }
-
-        return true;
-    }
-
-    /**
      * Get building by location id
      *
      * @param string $universe
@@ -724,10 +684,12 @@ class DB
     }
 
     /**
-     * Get NPC by location
+     * Latest live NPC record on a tile. A tile can hold several NPCs (Vyrex and Pirates share
+     * tiles and stack), so this prefers an uncloaked record and then the most recently seen.
+     * With $excludeDeleted false, the latest record of any state.
      *
      * @param string $universe
-     * @param int|null $id
+     * @param int $id
      * @param bool|null $excludeDeleted
      * @return object|null
      */
@@ -735,122 +697,262 @@ class DB
     {
         $db = MySqlDB::instance();
 
-        if ($excludeDeleted) {
-            $db->execute(sprintf('SELECT *, UTC_TIMESTAMP() AS today FROM %s_Test_Npcs WHERE (deleted is null or deleted = 0) and id = ?', $universe), [
-                'i', $id
-            ]);
-        } else {
-            $db->execute(sprintf('SELECT *, UTC_TIMESTAMP() AS today FROM %s_Test_Npcs WHERE id = ?', $universe), [
-                'i', $id
-            ]);
-        }
+        $live = $excludeDeleted ? '(deleted IS NULL OR deleted = 0) AND ' : '';
+        $db->execute(sprintf('SELECT *, UTC_TIMESTAMP() AS today FROM %s_Test_Npcs WHERE %sid = ? ORDER BY (cloaked IS NULL OR cloaked = 0) DESC, COALESCE(updated, spotted) DESC, kid DESC LIMIT 1', $universe, $live), [
+            'i', $id
+        ]);
 
-        return $db->numRows() === 1 ? $db->fetchObject() : null;
+        return $db->fetchObject() ?: null;
     }
 
     /**
-     * Add NPC
+     * Every live NPC record on a tile, oldest first.
+     *
+     * @param string $universe
+     * @param int $id
+     * @return array
+     */
+    public static function npc_live(string $universe, int $id): array
+    {
+        $db = MySqlDB::instance();
+
+        $db->execute(sprintf('SELECT *, UTC_TIMESTAMP() AS today FROM %s_Test_Npcs WHERE (deleted IS NULL OR deleted = 0) AND id = ? ORDER BY kid', $universe), [
+            'i', $id
+        ]);
+
+        $rows = [];
+        while ($row = $db->fetchObject()) {
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Pick the live record an NPC sighting belongs to.
+     *
+     * With an nID (the pilot is on the tile): the record of that image with that nID, else one of
+     * that image that has no nID yet. A record with a different nID is a different NPC.
+     * Without an nID (seen from another tile): any record of that image.
+     *
+     * @param array $live rows from npc_live()
+     * @param string $image
+     * @param int|null $nid
+     * @return object|null
+     */
+    public static function npc_match(array $live, string $image, ?int $nid): object|null
+    {
+        $same = array_values(array_filter($live, static fn ($r) => (string) $r->image === $image));
+
+        if (is_null($nid)) {
+            return $same[0] ?? null;
+        }
+        foreach ($same as $r) {
+            if (!is_null($r->nid) && (int) $r->nid === $nid) {
+                return $r;
+            }
+        }
+        foreach ($same as $r) {
+            if (is_null($r->nid)) {
+                return $r;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Record that an NPC was seen on a tile; returns the kid of its record.
+     *
+     * - A matching live record (see npc_match) is marked seen: uncloaked, and its nID filled in
+     *   if it had none. An existing nID is never changed to a different one.
+     * - Otherwise a new record is added. Only Vyrex and Pirates share a tile with other NPCs
+     *   (NPC::shares_tile), so a new non-sharing NPC ends the records of the other non-sharing
+     *   NPCs on the tile. Vyrex/Pirate records are kept: one may be cloaked or hidden under a
+     *   bigger NPC on the nav screen.
      *
      * @param string $universe
      * @param string $image
-     * @param integer|null $id
+     * @param integer|null $id tile id, or null to use sector + x/y
      * @param string|null $sector
      * @param integer $x
      * @param integer $y
-     * @param integer|null $nid
-     * @return boolean
+     * @param integer|null $nid only from the pilot's own tile (Other Ships list or combat screen)
+     * @return integer|null kid, or null if the tile is unknown
      */
-    public static function npc_add(string $universe, string $image, ?int $id, ?string $sector, int $x, int $y, ?int $nid = null)
+    public static function npc_add(string $universe, string $image, ?int $id, ?string $sector, int $x, int $y, ?int $nid = null): ?int
     {
         debug(__METHOD__, func_get_args());
 
         if ($id) {
-            $s = DB::sector(id: $id);  // Here, $id is passed as expected
-            $c = DB::cluster(id: $s->c_id);  // Assuming this is correct
+            $s = DB::sector(id: $id);
+        } else {
+            $s = DB::sector(sector: $sector);
+        }
+        if (is_null($s)) {
+            return null;
+        }
+        $c = DB::cluster(id: $s->c_id);
+        if ($id) {
             $x = Coordinates::getX($id, $s->s_id, $s->rows);
             $y = Coordinates::getY($id, $s->s_id, $s->rows, $x);
         } else {
-            // Pass null as the first argument when you are using the sector name
-            $s = DB::sector(sector: $sector);  // $id is null here, so we fetch by sector
-            $c = DB::cluster(id: $s->c_id);  // Assuming this is correct
             $id = Coordinates::getID($s->s_id, $s->rows, $x, $y);
         }
 
-        $npc = self::npc_static(image: $image);
-        $n = self::npc(universe: $universe, id: $id, excludeDeleted: true);
-        debug(__METHOD__, 'Loaded NPC', $n);
+        $live = self::npc_live(universe: $universe, id: $id);
+        $match = self::npc_match($live, $image, $nid);
+        debug(__METHOD__, 'Matched NPC', $match);
 
         $db = MySqlDB::instance();
 
-        if (!$n) {
-            debug(__METHOD__, 'NPC not found, adding');
+        if ($match) {
+            $db->execute(sprintf('UPDATE %s_Test_Npcs SET `cloaked` = NULL, `nid` = COALESCE(`nid`, ?), `updated` = UTC_TIMESTAMP() WHERE kid = ?', $universe), [
+                'ii', $nid, $match->kid
+            ]);
+            $kid = (int) $match->kid;
 
-            $query = sprintf('INSERT INTO %s_Test_Npcs (`id`) VALUES (?)', $universe);
-            $params = [
-                'i', $id
-            ];
-            $db->execute($query, $params);
-
-            // REVIEW this doesn't make sense
-            // we udpate NID for a newly added NPC so, deleted is already null
-            // skip a second query and just update NID at the end with the updated date
-            // if ($nid) {
-            //     $this->query('UPDATE ' . $uni . '_Test_Npcs SET `nid` = \'' . $nid . '\' WHERE (deleted is null or deleted = 0) and id = ' . $id);
-            // }
-
-            // Combine multiple updates into one query
-            $query = sprintf("UPDATE %s_Test_Npcs
-                        SET
-                            `cluster` = ?, `sector` = ?, `cloaked` = null, `x` = ?, `y` = ?, 
-                            `name` = ?, `image` = ?, 
-                            `hull` = ?, `armor` = ?, `shield` = ?, `spotted` = UTC_TIMESTAMP()
-                    WHERE (deleted is null or deleted = 0) and id = ?
-            ", $universe);
-            $params = [
-                'ssiissiiii',
-                $c->name, $s->name, $x, $y,
-                $npc->name, $image, 
-                $npc->hull, $npc->armor, $npc->shield, $id
-            ];
-
-            $db->execute($query, $params);
-
-            // Update map tile
-            $query = sprintf('UPDATE %s_Maps SET `npc` = ? , `npc_cloaked` = null, `npc_spotted` = UTC_TIMESTAMP() WHERE id = ?', $universe);
-            $params = [
+            $db->execute(sprintf('UPDATE %s_Maps SET `npc` = ?, `npc_cloaked` = NULL, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
                 'si', $image, $id
-            ];
+            ]);
 
-            $db->execute($query, $params);
+            return $kid;
+        }
 
-        } else {
-            debug(__METHOD__, 'NPC exists', $n->image, $image);
-            
-            if ($n->image != $image) {
-                debug(__METHOD__, 'it is a different NPC, remove and add');
-    
-                self::npc_remove(universe: $universe, id: $id, deleteMissions: true);
-                self::npc_add(universe: $universe, image: $image, id: $id, sector: $sector, x: $x, y: $y, nid: $nid); // Adding $nid
-                return true;
+        if (!NPC::shares_tile($image)) {
+            $end = [];
+            foreach ($live as $r) {
+                if (!NPC::shares_tile((string) $r->image)) {
+                    $end[] = (int) $r->kid;
+                }
+            }
+            if ($end) {
+                debug(__METHOD__, 'NPCs that cannot share a tile with it are gone', $end);
+                self::npc_end(universe: $universe, kids: $end, sync: false);
             }
         }
 
-        if(!is_null($nid)) {
-            $db->execute(sprintf('UPDATE %s_Test_Npcs SET `nid` = ?, `updated` = UTC_TIMESTAMP() WHERE (deleted is null or deleted = 0) and id = ?', $universe), [
-                'ii', $nid, $id
+        $npc = self::npc_static(image: $image);
+        $db->execute(sprintf('INSERT INTO %s_Test_Npcs (`id`, `nid`, `cluster`, `sector`, `cloaked`, `x`, `y`, `name`, `image`, `hull`, `armor`, `shield`, `spotted`, `updated`)
+                VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP())', $universe), [
+            'iissiissiii',
+            $id, $nid, $c->name ?? null, $s->name, $x, $y,
+            $npc->name ?? null, $image,
+            (int) ($npc->hull ?? 0), (int) ($npc->armor ?? 0), (int) ($npc->shield ?? 0)
+        ]);
+
+        $db->execute(sprintf('SELECT kid FROM %s_Test_Npcs WHERE id = ? AND image = ? AND (deleted IS NULL OR deleted = 0) ORDER BY kid DESC LIMIT 1', $universe), [
+            'is', $id, $image
+        ]);
+        $new = $db->fetchObject();
+
+        $db->execute(sprintf('UPDATE %s_Maps SET `npc` = ?, `npc_cloaked` = NULL, `npc_spotted` = UTC_TIMESTAMP(), `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
+            'si', $image, $id
+        ]);
+
+        return $new ? (int) $new->kid : null;
+    }
+
+    /**
+     * End NPC records (the NPC is gone or was killed).
+     *
+     * @param string $universe
+     * @param array $kids record ids
+     * @param bool $deleteMissions also remove missions targeting those tiles (kills only)
+     * @param bool $sync update the map tiles to show what is still there
+     * @return void
+     */
+    public static function npc_end(string $universe, array $kids, bool $deleteMissions = false, bool $sync = true): void
+    {
+        debug(__METHOD__, func_get_args());
+
+        $kids = array_values(array_unique(array_map('intval', $kids)));
+        if (!$kids) {
+            return;
+        }
+
+        $db = MySqlDB::instance();
+        $in = implode(',', array_fill(0, count($kids), '?'));
+        $types = str_repeat('i', count($kids));
+
+        $db->execute(sprintf('SELECT DISTINCT id, sector, x, y FROM %s_Test_Npcs WHERE kid IN (%s)', $universe, $in), array_merge([$types], $kids));
+        $tiles = [];
+        while ($t = $db->fetchObject()) {
+            $tiles[] = $t;
+        }
+
+        $db->execute(sprintf('UPDATE %s_Test_Npcs SET `deleted` = 1, `cloaked` = NULL, `updated` = UTC_TIMESTAMP() WHERE kid IN (%s) AND (deleted IS NULL OR deleted = 0)', $universe, $in), array_merge([$types], $kids));
+
+        foreach ($tiles as $t) {
+            if ($deleteMissions && !is_null($t->sector)) {
+                self::mission_remove(universe: $universe, sector: $t->sector, x: (int) $t->x, y: (int) $t->y);
+            }
+            if ($sync) {
+                self::npc_sync_tile(universe: $universe, id: (int) $t->id);
+            }
+        }
+    }
+
+    /**
+     * Mark an NPC record cloaked (its tile looks empty, but it may still be there).
+     * `updated` is set only when it goes cloaked, so it says how long it has been unseen.
+     *
+     * @param string $universe
+     * @param int $kid
+     * @return void
+     */
+    public static function npc_cloak(string $universe, int $kid): void
+    {
+        $db = MySqlDB::instance();
+        $db->execute(sprintf('UPDATE %s_Test_Npcs SET `cloaked` = 1, `updated` = UTC_TIMESTAMP() WHERE kid = ? AND cloaked IS NULL', $universe), [
+            'i', $kid
+        ]);
+    }
+
+    /**
+     * End the live records of a one-per-cluster NPC everywhere in the cluster except one tile.
+     *
+     * @param string $universe
+     * @param string $cluster
+     * @param string $image
+     * @param int $exceptId
+     * @return void
+     */
+    public static function npc_end_elsewhere(string $universe, string $cluster, string $image, int $exceptId): void
+    {
+        $db = MySqlDB::instance();
+        $db->execute(sprintf('SELECT kid FROM %s_Test_Npcs WHERE (deleted IS NULL OR deleted = 0) AND cluster = ? AND image = ? AND id <> ?', $universe), [
+            'ssi', $cluster, $image, $exceptId
+        ]);
+        $kids = [];
+        while ($r = $db->fetchObject()) {
+            $kids[] = (int) $r->kid;
+        }
+        self::npc_end(universe: $universe, kids: $kids);
+    }
+
+    /**
+     * Make the map tile show what is still recorded on it: the latest live NPC (uncloaked first),
+     * or nothing.
+     *
+     * @param string $universe
+     * @param int $id
+     * @return void
+     */
+    public static function npc_sync_tile(string $universe, int $id): void
+    {
+        $n = self::npc(universe: $universe, id: $id);
+        $db = MySqlDB::instance();
+
+        if ($n) {
+            $db->execute(sprintf('UPDATE %s_Maps SET `npc` = ?, `npc_cloaked` = ?, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
+                'sii', $n->image, empty($n->cloaked) ? null : 1, $id
             ]);
         } else {
-            $db->execute(sprintf('UPDATE %s_Test_Npcs SET `updated` = UTC_TIMESTAMP() WHERE (deleted is null or deleted = 0) and id = ?', $universe), [
+            $db->execute(sprintf('UPDATE %s_Maps SET `npc` = NULL, `npc_cloaked` = NULL, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
                 'i', $id
             ]);
         }
-
-        // Update map tile
-        $db->execute(sprintf('UPDATE %s_Maps SET `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
-            'i', $id
-        ]);
-
-        return true;
     }
 
     /**
@@ -1005,7 +1107,7 @@ class DB
     }
 
     /**
-     * Remove NPC
+     * Remove every NPC on a tile: a pilot on the tile sees none, or a building replaced them.
      *
      * @param string $universe
      * @param integer $id
@@ -1016,61 +1118,36 @@ class DB
     {
         debug(__METHOD__, func_get_args());
 
-        $db = MySqlDB::instance();
+        $kids = array_map(static fn ($r) => (int) $r->kid, self::npc_live(universe: $universe, id: $id));
+        self::npc_end(universe: $universe, kids: $kids, deleteMissions: $deleteMissions, sync: false);
 
-        // Combine the updates into one query
-        $db->execute(sprintf('UPDATE %s_Maps SET `npc` = null , `npc_cloaked` = null, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
+        $db = MySqlDB::instance();
+        $db->execute(sprintf('UPDATE %s_Maps SET `npc` = NULL, `npc_cloaked` = NULL, `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
             'i', $id
         ]);
-        $db->execute(sprintf('UPDATE %s_Test_Npcs SET `deleted` = 1, `cloaked` = null, `updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
-            'i', $id
-        ]);
-        
-        // REVIEW
-        // i think we need to remove any assasination missions for this NPC when the NPC is killed
-        // also, i'm not sure how cloaked works
-        // while testing, a NPC cloaked and in DB was marked as deleted
-        // i added a deleteMissions parameter passed as true only from importnpcinfo.php 
-        // when kill a NPC only then remove the mission/s
-        $npc = self::npc(universe: $universe, id: $id);
-        if ($npc && $deleteMissions) {
-            debug(__METHOD__, 'NPC Killed or replaced by building, remove missions as well');
-            self::mission_remove(universe: $universe, sector: $npc->sector, x: $npc->x, y: $npc->y);
-        }
 
         return true;
     }
 
     /**
-     * Update NPC health
+     * Update one NPC record's health (from the combat screen).
      *
      * @param string $universe
-     * @param integer $id
+     * @param integer $kid
      * @param integer $hull
      * @param integer $armor
      * @param integer $shield
-     * @param integer|null $nid
      * @return boolean
      */
-    public static function npc_update_health(string $universe, int $id, int $hull, int $armor, int $shield, ?int $nid = null): bool
+    public static function npc_update_health(string $universe, int $kid, int $hull, int $armor, int $shield): bool
     {
         debug(__METHOD__, func_get_args());
 
         $db = MySqlDB::instance();
-
-        $query = sprintf("UPDATE %s_Test_Npcs
-                    SET `nid` = ?,
-                        `hull` = ?, `armor` = ?, `shield` = ?, `updated` = UTC_TIMESTAMP()
-                WHERE id = ?
-        ", $universe);
-        $params = [
-            'iiiii', $nid, $hull, $armor, $shield, $id
-        ];
-
-        $db->execute($query, $params);
-        $db->execute(sprintf('UPDATE %s_Maps SET `npc_updated` = UTC_TIMESTAMP() WHERE id = ?', $universe), [
-            'i', $id
+        $db->execute(sprintf('UPDATE %s_Test_Npcs SET `hull` = ?, `armor` = ?, `shield` = ?, `updated` = UTC_TIMESTAMP() WHERE kid = ?', $universe), [
+            'iiii', $hull, $armor, $shield, $kid
         ]);
+
         return true;
     }
 

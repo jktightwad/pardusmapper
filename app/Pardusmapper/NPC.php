@@ -180,6 +180,32 @@ class NPC{
         'opponents/vyrex_mutant_mauler.png',
     ];
 
+    /**
+     * NPCs that can be on the same tile as another NPC: Vyrex (they also stack, many of the same
+     * type on one tile), Pirates (invasions), and the random spawns Wormhole / X Hole Monsters
+     * (drawn with their hole's image) and Exocrabs. Any other NPC seen on a tile replaces the
+     * non-sharing NPC recorded there.
+     */
+    public static function shares_tile(string $image): bool
+    {
+        return (bool) preg_match('#^(opponents/(vyrex_|pirate_|exocrab\.png$)|foregrounds/[xy]?(worm)?hole\.png$)#', $image);
+    }
+
+    /** Images an NPC can have: opponents/*, or a hole monster drawn with its hole's image. */
+    public static function is_npc_image(string $image): bool
+    {
+        return str_starts_with($image, 'opponents/') || (bool) preg_match('#^foregrounds/[xy]?(worm)?hole\.png$#', $image);
+    }
+
+    /**
+     * Vyrex can cloak, and an uncloaked Vyrex can be hidden under a bigger NPC on the nav screen,
+     * so a Vyrex record is only ended by a pilot on its tile (or a kill), never from another tile.
+     */
+    public static function is_vyrex(string $image): bool
+    {
+        return str_starts_with($image, 'opponents/vyrex_');
+    }
+
     public static function cloaked() {
         $cloaked = self::CLOACKED;
         sort($cloaked);

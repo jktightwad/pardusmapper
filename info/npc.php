@@ -120,7 +120,7 @@ $db->execute($query, $params);
 
 while ($q = $db->nextObject()) {
     debug($q);
-    if (empty($q->sector)) {$delete[] = $q->id; continue;}
+    if (empty($q->sector)) {$delete[] = $q->kid; continue;}
     // Calculate Days/Hours/Mins Since last seen
     $diff['sec'] = isset($q->updated) ? strtotime($q->today) - strtotime($q->updated) : 99999999;
     $diff['days'] = $diff['sec']/60/60/24;
@@ -147,9 +147,9 @@ while ($q = $db->nextObject()) {
     $q->age = $diff['string'];
     $cloaked = $q->cloaked;
     $aged = $q->aged;
-    if ((($aged > 2) && ($cloaked == 1))||$aged > 7) { $delete[] = $q->id; }
-    if (($diff['days'] > 2 && ($cloaked == 1))||$diff['days'] > 7) { $delete[] = $q->id; }
-    if ($diff['days'] > 7) { $delete[] = $q->id; }
+    if ((($aged > 2) && ($cloaked == 1))||$aged > 7) { $delete[] = $q->kid; }
+    if (($diff['days'] > 2 && ($cloaked == 1))||$diff['days'] > 7) { $delete[] = $q->kid; }
+    if ($diff['days'] > 7) { $delete[] = $q->kid; }
     else { if (!(in_array($q->id,$static))) { $npc[] = $q; } }
     
     unset($diff);
@@ -157,7 +157,8 @@ while ($q = $db->nextObject()) {
     unset($aged);
 }
 
-if (count($delete) > 0) { foreach ($delete as $d) { DB::npc_remove(universe: $uni,id: $d, deleteMissions: true); } }
+// expire only the stale records, not every NPC on their tiles
+DB::npc_end(universe: $uni, kids: $delete);
 
 $db->close();
 
