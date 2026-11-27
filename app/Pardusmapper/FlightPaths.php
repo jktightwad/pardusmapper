@@ -201,15 +201,14 @@ class FlightPaths
         $guesses = ['seen' => 0, 'map' => 0, 'none' => 0, 'stuck' => 0];
         $gapWormholes = DB::wormhole_tiles(array_column($gapEvents, 'from'));
         foreach ($gapEvents as $g) {
-            // stuck away from any wormhole when it vanished: a possible teleport, so no route is filled in
+            // Stuck away from any wormhole when it vanished: it teleported out, one sector, then flew
+            // on as usual. The route is still filled in; its first move is marked as the teleport.
             $dist = self::wormholeDistance($gapWormholes[$g['from']] ?? [], $g['x'], $g['y']);
-            if (!is_null($dist) && $dist > self::NEAR_WORMHOLE && self::stuck($g['from'], $g['tiles'] ?: [[$g['x'], $g['y']]])) {
+            $stuckOut = !is_null($dist) && $dist > self::NEAR_WORMHOLE && self::stuck($g['from'], $g['tiles'] ?: [[$g['x'], $g['y']]]);
+            if ($stuckOut) {
                 $guesses['stuck']++;
-                self::addMove($moves, $g['from'], $g['to'], 'jump', $g['r']);
                 $jumpEvents[] = ['from' => $g['from'], 'to' => $g['to'], 'x' => $g['x'], 'y' => $g['y'], 'tiles' => $g['tiles'],
-                                 'confirmed' => false, 'gap' => $g['gap'], 'min' => null];
-                $trail[$g['flyby']]['to'] ??= $g['to'];
-                continue;
+                                 'confirmed' => false, 'gap' => $g['gap'], 'min' => null, 'gapStuck' => true];
             }
             $maxBetween = max(0, intdiv($g['gap'], self::FASTEST_SECTOR_TIME) - 1); // sectors in between it could have crossed
             $how = 'seen';
@@ -227,6 +226,10 @@ class FlightPaths
             for ($i = 1; $i < count($path); $i++) {
                 self::addMove($moves, $path[$i - 1], $path[$i], 'flight', $g['r'], true);
             }
+            if ($stuckOut) {
+                $first = $path[0] . '|' . $path[1];
+                $moves[$first]['teleportOut'] = ($moves[$first]['teleportOut'] ?? 0) + 1;
+            }
             $trail[$g['flyby']]['to'] ??= $path[1]; // the way it most likely left
         }
 
@@ -235,8 +238,8 @@ class FlightPaths
         // - otherwise by where it was last seen before it went:
         //   - on or next to a wormhole: it left through the wormhole and flew on unseen;
         //   - stuck (the next tile in the direction it was heading is impassable) away from any
-        //     wormhole: a possible teleport (e.g. Nebul, running into the wall going west to east),
-        //     not confirmed, as it had time to fly;
+        //     wormhole: it teleported out, one sector (it can't go back, so it is moved on), then
+        //     flew on as usual (e.g. Nebul, running into the wall going west to east);
         //   - anywhere else: it went out of view, probably flying on to a wormhole unseen.
         // Nothing is assumed about how far a teleport goes.
         $whTiles = DB::wormhole_tiles(array_column($jumpEvents, 'from'));
@@ -256,7 +259,10 @@ class FlightPaths
             } else {
                 $how = self::stuck($e['from'], $e['tiles'] ?: [[$e['x'], $e['y']]]) ? 'stuck' : 'unseen';
             }
-            $moves[$e['from'] . '|' . $e['to']]['exits'][$how]++;
+            if (empty($e['gapStuck'])) {
+                // (a gap where it teleported out has its route filled in instead of a jump arrow)
+                $moves[$e['from'] . '|' . $e['to']]['exits'][$how]++;
+            }
 
             $j = $jumps[$e['from']] ?? ['count' => 0, 'teleport' => 0, 'stuck' => 0, 'wormhole' => 0, 'unseen' => 0, 'unknown' => 0, 'to' => [], 'tiles' => []];
             $j['count']++;
