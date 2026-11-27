@@ -58,7 +58,11 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
 					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw, and <b><?= $teleports ?></b> teleport<?= $teleports === 1 ? '' : 's' ?>.</p>
 				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
-					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. It crosses a sector in 2-3 minutes, so after a longer gap it could have taken another route entirely, and no arrow is drawn.
+					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last.
+					When the next sighting is <?= FlightPaths::LINK_WINDOW / 60 ?>-<?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later in another sector, the <b>likely route</b> in between is filled in (faint dots):
+					the shortest way along moves already seen, else by wormholes, if it could fly it in that time.
+					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?>.)<?php } ?>
+					More than <?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later is a different flyby and route, and nothing is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
 					A move to a sector with no wormhole link in that short time is a flight on through sectors nobody saw (<b>dotted orange</b>),
@@ -66,6 +70,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
+					<span><span class="sw" style="background:repeating-linear-gradient(90deg,rgba(255,140,26,0.55) 0 1px,transparent 1px 5px)"></span>Likely route (filled in, not seen)</span>
 					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 2px,transparent 2px 5px)"></span>Flew on unseen</span>
 					<span><span class="sw" style="background:#b06cf0"></span>Teleport (stuck, then gone)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
@@ -123,14 +128,21 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
         $isTeleport = $m['type'] === 'jump' && $m['exits']['teleport'] > 0;
         $kind = $m['type'] === 'flight' ? 'flight' : ($isTeleport ? 'teleport' : 'flew on unseen');
-        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s', $m['from'], $m['to'], $kind,
-            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
-            $m['via'] ? '. Could have flown via ' . implode(', ', $m['via']) : '');
+        $guessedOnly = $m['count'] === 0;
+        if ($guessedOnly) {
+            $label = sprintf('%s → %s (likely route, not seen): filled in %d time%s between sightings %d-%d minutes apart',
+                $m['from'], $m['to'], $m['guessed'], $m['guessed'] === 1 ? '' : 's', FlightPaths::LINK_WINDOW / 60, FlightPaths::EXTRAPOLATE_WINDOW / 60);
+        } else {
+            $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s%s', $m['from'], $m['to'], $kind,
+                $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
+                $m['guessed'] ? sprintf('; also filled in %d time%s as the likely route', $m['guessed'], $m['guessed'] === 1 ? '' : 's') : '',
+                $m['via'] ? '. Could have flown via ' . implode(', ', $m['via']) : '');
+        }
         $moveKey = $h($m['from'] . '|' . $m['to']);
 
         if ($m['type'] === 'flight') {
-            printf('<g class="fm-move fm-flight" data-move="%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
-                $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
+            printf('<g class="fm-move fm-flight%s" data-move="%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
+                $guessedOnly ? ' fm-guess' : '', $moveKey, $guessedOnly ? '' : $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
         } else {
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
@@ -196,7 +208,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					?>
 					<tr class="fm-route" data-moves="<?= $h(implode(',', $rt['moves'])) ?>">
 						<td><?= $i + 1 ?></td>
-						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a teleport">(teleport)</span>' : '' ?></td>
+						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a teleport">(teleport)</span>' : '' ?><?= $rt['guessed'] ? ' <span title="moves filled in between sightings, not seen">(' . $rt['guessed'] . ' filled in)</span>' : '' ?></td>
 						<td><?= $h($rt['heading'] ?? '-') ?></td>
 						<td><?= count($rt['sectors']) ?></td>
 						<td><?= $rt['seen'] ?></td>

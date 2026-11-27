@@ -10,8 +10,10 @@ namespace Pardusmapper;
  * - A flyby is the serpent passing through a sector. Sightings in the same sector less than
  *   FLYBY_GAP apart are one flyby; further apart, it has come round again (another flyby).
  * - A chain is what pilots saw of one flight: flybys in one universe, each in a different sector
- *   from the last and at most LINK_WINDOW after it. With a longer gap it could have been anywhere
- *   in between, so the chain ends. A different NPC ID (another serpent) also ends it.
+ *   from the last and at most LINK_WINDOW after it. A different NPC ID (another serpent) ends it.
+ * - Seen in another sector LINK_WINDOW to EXTRAPOLATE_WINDOW later: the likely route in between
+ *   is filled in (guessed moves, never used as evidence of a turn). Later than that is a
+ *   different flyby and route.
  * - A move between sectors linked by a wormhole is a flight; to any other sector in that short
  *   time, a jump: a teleport (e.g. from Nebul), or a sector nobody saw it cross.
  *
@@ -43,6 +45,15 @@ class FlightPaths
      * route entirely.
      */
     public const LINK_WINDOW = 480;
+
+    /**
+     * Seen in another sector up to this many seconds later (but more than LINK_WINDOW): the likely
+     * route in between is filled in (a guess). Longer: a different flyby and route.
+     */
+    public const EXTRAPOLATE_WINDOW = 1200;
+
+    /** The fastest it is assumed to cross a sector, in seconds (its speed varies). */
+    public const MIN_SECTOR_TIME = 90;
 
     /** A jump that left by a wormhole is shown with the way on it could have flown, up to this many sectors. */
     public const MAX_UNSEEN = 3;
@@ -76,6 +87,7 @@ class FlightPaths
         $moves = [];
         $sectors = [];
         $jumpEvents = [];
+        $gapEvents = [];
         $turns = [];
         $last = [];   // universe => its latest sighting
         $chain = [];  // universe => sectors of its current chain
@@ -103,6 +115,11 @@ class FlightPaths
                 }
                 unset($t);
                 continue;
+            }
+
+            // seen in another sector 8-20 minutes later: a gap to fill with a likely route afterwards
+            if (!is_null($p) && !$otherSerpent && !$joined && $p->sector !== $r->sector && $gap <= self::EXTRAPOLATE_WINDOW) {
+                $gapEvents[] = ['from' => $p->sector, 'to' => $r->sector, 'gap' => $gap, 'flyby' => $open[$r->uni], 'r' => $r];
             }
 
             // where it went next, for the flyby it just left
@@ -148,6 +165,34 @@ class FlightPaths
             }
         }
 
+        // Gaps of 8-20 minutes: fill in the likely route between the two sightings. It flies one big
+        // looping route with smaller routes inside, so first the shortest way along moves already
+        // seen, else the shortest way by wormholes, and only if it could fly it in the time.
+        $seenOut = [];
+        foreach ($moves as $m) {
+            if ($m['type'] === 'flight') { $seenOut[$m['from']][$m['to']] = true; }
+        }
+        $guesses = ['seen' => 0, 'map' => 0, 'none' => 0];
+        foreach ($gapEvents as $g) {
+            $maxBetween = max(0, intdiv($g['gap'], self::MIN_SECTOR_TIME) - 1); // sectors in between it could have crossed
+            $how = 'seen';
+            $between = self::shortestWay($seenOut, $g['from'], $g['to'], $maxBetween);
+            if (is_null($between)) {
+                $how = 'map';
+                $between = self::shortestWay($neighbours, $g['from'], $g['to'], $maxBetween);
+            }
+            if (is_null($between)) {
+                $guesses['none']++;
+                continue;
+            }
+            $guesses[$how]++;
+            $path = [$g['from'], ...$between, $g['to']];
+            for ($i = 1; $i < count($path); $i++) {
+                self::addMove($moves, $path[$i - 1], $path[$i], 'flight', $g['r'], true);
+            }
+            $trail[$g['flyby']]['to'] ??= $path[1]; // the way it most likely left
+        }
+
         // Jumps, by where it was last seen before it went:
         // - on or next to a wormhole: it left through the wormhole and flew on unseen;
         // - stuck (the next tile in the direction it was heading is impassable) away from any
@@ -189,7 +234,7 @@ class FlightPaths
         unset($m);
 
         return ['moves' => $moves, 'sectors' => $sectors, 'jumps' => $jumps, 'turns' => $turns,
-                'tracks' => self::tracks($trail),
+                'tracks' => self::tracks($trail), 'guesses' => $guesses,
                 'chains' => $chains, 'records' => count($records), 'flybys' => $flybys];
     }
 
@@ -298,13 +343,18 @@ class FlightPaths
         return $tracks;
     }
 
-    private static function addMove(array &$moves, string $from, string $to, string $type, object $r): void
+    /** Count a move. $guessed: filled in between two sightings 8-20 minutes apart, not seen. */
+    private static function addMove(array &$moves, string $from, string $to, string $type, object $r, bool $guessed = false): void
     {
         $key = $from . '|' . $to;
-        $m = $moves[$key] ?? ['from' => $from, 'to' => $to, 'type' => $type, 'count' => 0, 'unis' => [], 'last' => null];
-        $m['count']++;
-        $m['unis'][$r->uni] = ($m['unis'][$r->uni] ?? 0) + 1;
-        $m['last'] = $r->spotted;
+        $m = $moves[$key] ?? ['from' => $from, 'to' => $to, 'type' => $type, 'count' => 0, 'guessed' => 0, 'unis' => [], 'last' => null];
+        if ($guessed) {
+            $m['guessed']++;
+        } else {
+            $m['count']++;
+            $m['unis'][$r->uni] = ($m['unis'][$r->uni] ?? 0) + 1;
+        }
+        $m['last'] = max((string) $m['last'], (string) $r->spotted);
         $moves[$key] = $m;
     }
 
@@ -369,6 +419,7 @@ class FlightPaths
             $seen = 0;
             $unis = [];
             $jumps = 0;
+            $guessedOnly = 0;
             for ($i = 1; $i < count($route); $i++) {
                 $key = $route[$i - 1] . '|' . $route[$i];
                 $m = $flight['moves'][$key];
@@ -376,6 +427,7 @@ class FlightPaths
                 $seen += $m['count'];
                 foreach ($m['unis'] as $u => $n) { $unis[$u] = ($unis[$u] ?? 0) + $n; }
                 $jumps += $m['type'] === 'jump' ? 1 : 0;
+                $guessedOnly += $m['count'] === 0 ? 1 : 0;
             }
             $joined = [];
             for ($i = 1; $i < count($route) - 1; $i++) {
@@ -384,7 +436,7 @@ class FlightPaths
                 }
             }
             $routes[] = ['sectors' => $route, 'moves' => $keys, 'seen' => $seen, 'unis' => $unis, 'jumps' => $jumps,
-                         'joined' => $joined, 'heading' => self::heading($pos[$route[0]] ?? null, $pos[end($route)] ?? null)];
+                         'joined' => $joined, 'guessed' => $guessedOnly, 'heading' => self::heading($pos[$route[0]] ?? null, $pos[end($route)] ?? null)];
         }
         usort($routes, static fn ($a, $b) => count($b['sectors']) <=> count($a['sectors']) ?: $b['seen'] <=> $a['seen']);
 
