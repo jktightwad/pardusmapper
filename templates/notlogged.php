@@ -8,8 +8,7 @@ declare(strict_types=1);
 ?>
 <html>
 	<head>
-		<?php if (isset($s)) { echo '<title>' . $s->name . '\'s Mission Listing</title>'; } ?>
-		<?php if (isset($cluster)) { echo '<title>' . $cluster . '\'s Mission Listing</title>'; } ?>
+		<title>Pardus Mapper - Log In Required</title>
 		<link rel="stylesheet" type="text/css" href="<?php echo $css; ?>" />
 		<link rel="stylesheet" type="text/css" href="<?php echo $m_css; ?>" />
 	</head>
@@ -20,9 +19,9 @@ declare(strict_types=1);
 			<?php if (isset($_SESSION['user'])) { ?>
 				<h2>You are logged in as <?php echo htmlspecialchars((string) $_SESSION['user']); ?>, but your mapper script hasn't sent any data from <?php echo htmlspecialchars((string) $uni); ?> in the last 48 hours.</h2>
 				<br>
-				<h2>NPC and Mission lists are for active contributors. Open Pardus <?php echo htmlspecialchars((string) $uni); ?> with the user script running and visit a few pages, then refresh this page. You do not need to log out and back in.</h2>
+				<h2>This page is for active contributors. Open Pardus <?php echo htmlspecialchars((string) $uni); ?> with the user script running and visit a few pages, then refresh this page. You do not need to log out and back in.</h2>
 			<?php } else { ?>
-				<h2> Please Log In to View Mission Information </h2>
+				<h2>Please log in to view this page</h2>
 				<br>
 				<h2>To Setup an Account all you need to do is install the script, then log into Pardus or Refresh your Pardus Page.
 					<br>
