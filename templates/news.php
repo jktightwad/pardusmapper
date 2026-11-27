@@ -12,6 +12,22 @@ declare(strict_types=1);
 		<div id="footer"><?php require_once(templates('footer')); ?></div>
 		<div id="body">
 			<ul>
+				<li><h1>Rare NPC Stats and Map Fixes (November 2026)</h1>
+				<ul>
+					<li><h2>Rare NPC Stats</h2>
+					<ul>
+						<li>New <b>Rare NPC Stats</b> page in the menu, for logged-in pilots whose mapper script has sent data in the last 48 hours
+						<li>Tracks the Feral Serpent, Shadow, Hidden Drug Stash, Cyborg Corebreaker and Pirate Captain, with sightings from Orion, Artemis and Pegasus combined
+						<li>See how many separate sightings and unique NPC IDs each one has, and a map of every sector and tile it has been seen in
+						<li>Feral Serpent flight paths: its moves drawn on a universe map, including which way it flies and where it teleports
+						<li>On any sector map, tick <b>Rare NPC History</b> to see where these NPCs have been spotted before
+					</ul>
+					<li><h2>Map Fixes</h2>
+					<ul>
+						<li>Pardus Core sectors: the cluster minimap is smaller and no longer covers the sector map. Large sectors scroll beside it, and the row and column numbers stay in view
+						<li>NPC tracking is more accurate: NPCs sharing a tile (Vyrex, Pirates, Exocrabs, hole monsters) are each kept, and one NPC's ID no longer overwrites another's. Hover over a tile to see every NPC on it
+					</ul>
+				</ul>
 				<li><h1>Solarix's IP</h1>
 				<ul>
 					<li>I have finally gotten around to adding Solarix's IP to the choices on the Options Page. Everone enjoy these wonderful images
