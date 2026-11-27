@@ -1,5 +1,9 @@
 #ErrorDocument 404 https://pardusmapper.com/404page.html
 
+# The host's ModSecurity blocks URL paths containing "cp " (e.g. /Orion/CP%202-197)
+# with a 406. error406.php redirects those sector URLs to their query-string form.
+ErrorDocument 406 /error406.php
+
 
 Options +FollowSymlinks
 
