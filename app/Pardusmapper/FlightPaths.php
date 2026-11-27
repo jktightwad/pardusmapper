@@ -40,8 +40,11 @@ class FlightPaths
     /** Flybys in different sectors at most this many seconds apart are part of one chain. */
     public const LINK_WINDOW = 2700;
 
-    /** A jump that could have been this many unseen sectors or fewer is shown with that way round. */
+    /** A jump that left by a wormhole is shown with the way on it could have flown, up to this many sectors. */
     public const MAX_UNSEEN = 5;
+
+    /** Last seen on or next to a wormhole (this many tiles or fewer) before a jump: it left through the wormhole. */
+    public const NEAR_WORMHOLE = 1;
 
     /** Stop looking for more routes after this many (the graph is small; this is a safety net). */
     private const MAX_ROUTES = 60;
@@ -68,7 +71,7 @@ class FlightPaths
 
         $moves = [];
         $sectors = [];
-        $jumps = [];
+        $jumpEvents = [];
         $turns = [];
         $last = [];   // universe => its latest sighting
         $chain = [];  // universe => sectors of its current chain
@@ -100,8 +103,10 @@ class FlightPaths
 
             // where it went next, for the flyby it just left
             $moved = $joined && $p->sector !== $r->sector;
+            $leftTiles = [];
             if ($moved) {
                 $trail[$open[$r->uni]]['to'] = $r->sector;
+                $leftTiles = $trail[$open[$r->uni]]['tiles']; // the tiles it crossed in the sector it left
             }
             $trail[] = ['sector' => $r->sector, 'from' => $moved ? $p->sector : null, 'to' => null, 'tiles' => [[(int) $r->x, (int) $r->y]]];
             $open[$r->uni] = array_key_last($trail);
@@ -120,12 +125,9 @@ class FlightPaths
                 $type = isset($adjacent[UniverseMap::linkKey($p->sector, $r->sector)]) ? 'flight' : 'jump';
                 self::addMove($moves, $p->sector, $r->sector, $type, $r);
                 if ($type === 'jump') {
-                    $j = $jumps[$p->sector] ?? ['count' => 0, 'to' => [], 'tiles' => []];
-                    $j['count']++;
-                    $j['to'][$r->sector] = ($j['to'][$r->sector] ?? 0) + 1;
-                    $tile = $p->x . ',' . $p->y; // last tile it was seen on before jumping
-                    $j['tiles'][$tile] = ($j['tiles'][$tile] ?? 0) + 1;
-                    $jumps[$p->sector] = $j;
+                    // classified once all jumps are known (by the tile it was last seen on before leaving)
+                    $jumpEvents[] = ['from' => $p->sector, 'to' => $r->sector, 'x' => (int) $p->x, 'y' => (int) $p->y,
+                                     'tiles' => array_slice($leftTiles, -2)];
                 }
                 $c = &$chain[$r->uni];
                 if (count($c) === 1) { $chains++; }
@@ -142,12 +144,43 @@ class FlightPaths
             }
         }
 
-        uasort($jumps, static fn ($a, $b) => $b['count'] <=> $a['count']);
-
-        // A jump is often just flying through sectors nobody saw (it crosses one in a few minutes):
-        // note the shortest way round by wormholes, if it is short.
+        // Jumps, by where it was last seen before it went:
+        // - on or next to a wormhole: it left through the wormhole and flew on unseen;
+        // - stuck (the next tile in the direction it was heading is impassable) away from any
+        //   wormhole: it teleported (e.g. Nebul, running into the wall going west to east);
+        // - anywhere else: it went out of view, probably flying on to a wormhole unseen.
+        // Nothing is assumed about how far a teleport goes.
+        $whTiles = DB::wormhole_tiles(array_column($jumpEvents, 'from'));
+        $jumps = [];
         foreach ($moves as &$m) {
-            $m['via'] = $m['type'] === 'jump' ? self::shortestWay($neighbours, $m['from'], $m['to'], self::MAX_UNSEEN) : null;
+            $m['exits'] = ['wormhole' => 0, 'teleport' => 0, 'unseen' => 0, 'unknown' => 0];
+        }
+        unset($m);
+        foreach ($jumpEvents as $e) {
+            $dist = self::wormholeDistance($whTiles[$e['from']] ?? [], $e['x'], $e['y']);
+            if (is_null($dist)) {
+                $how = 'unknown'; // no wormhole mapped in that sector
+            } elseif ($dist <= self::NEAR_WORMHOLE) {
+                $how = 'wormhole';
+            } else {
+                $how = self::stuck($e['from'], $e['tiles'] ?: [[$e['x'], $e['y']]]) ? 'teleport' : 'unseen';
+            }
+            $moves[$e['from'] . '|' . $e['to']]['exits'][$how]++;
+
+            $j = $jumps[$e['from']] ?? ['count' => 0, 'wormhole' => 0, 'teleport' => 0, 'unseen' => 0, 'unknown' => 0, 'to' => [], 'tiles' => []];
+            $j['count']++;
+            $j[$how]++;
+            $j['to'][$e['to']] = ($j['to'][$e['to']] ?? 0) + 1;
+            $tile = $e['x'] . ',' . $e['y'];
+            $j['tiles'][$tile] = ['n' => ($j['tiles'][$tile]['n'] ?? 0) + 1, 'how' => $how, 'dist' => $dist];
+            $jumps[$e['from']] = $j;
+        }
+        uasort($jumps, static fn ($a, $b) => $b['teleport'] <=> $a['teleport'] ?: $b['count'] <=> $a['count']);
+
+        // For a jump where it flew on unseen, the shortest way on it could have taken
+        foreach ($moves as &$m) {
+            $m['via'] = ($m['type'] === 'jump' && ($m['exits']['wormhole'] + $m['exits']['unseen']) > 0)
+                ? self::shortestWay($neighbours, $m['from'], $m['to'], self::MAX_UNSEEN) : null;
         }
         unset($m);
 
@@ -164,6 +197,53 @@ class FlightPaths
      *               'paths' => [[[x, y], ...], ...] (flybys seen on 2+ tiles, in order), 'tiles' => "x,y" => count]
      *               Directions with the most flybys first.
      */
+    /**
+     * Was it stuck where it was last seen? $tiles: its last one or two tiles in the sector, oldest
+     * first. With two, it is stuck if the next tile in the direction it was heading is impassable
+     * (or off the map). With only one (no direction), if at most one tile around it is passable.
+     */
+    private static function stuck(string $sector, array $tiles): bool
+    {
+        [$x, $y] = end($tiles);
+        $terrain = [];
+        foreach (DB::map_tiles('Orion', $sector, $x - 1, $x + 1, $y - 1, $y + 1) as $t) {
+            $terrain[(int) $t->x . ',' . (int) $t->y] = TileMap::category($t->bg, $t->fg);
+        }
+        // a tile without a map row is impassable, as on the sector map
+        $blocked = static fn (int $tx, int $ty): bool => ($terrain[$tx . ',' . $ty] ?? TileMap::IMPASSABLE) === TileMap::IMPASSABLE;
+
+        if (count($tiles) === 2) {
+            [$px, $py] = $tiles[0];
+            $dx = $x <=> $px;
+            $dy = $y <=> $py;
+            if ($dx !== 0 || $dy !== 0) {
+                return $blocked($x + $dx, $y + $dy);
+            }
+        }
+        $open = 0;
+        for ($dx = -1; $dx <= 1; $dx++) {
+            for ($dy = -1; $dy <= 1; $dy++) {
+                if (($dx !== 0 || $dy !== 0) && !$blocked($x + $dx, $y + $dy)) {
+                    $open++;
+                }
+            }
+        }
+
+        return $open <= 1;
+    }
+
+    /** Tiles from ($x, $y) to the nearest wormhole tile (diagonal steps count as one); null if none is known. */
+    private static function wormholeDistance(array $whTiles, int $x, int $y): ?int
+    {
+        $best = null;
+        foreach ($whTiles as [$wx, $wy]) {
+            $d = max(abs($wx - $x), abs($wy - $y));
+            $best = is_null($best) ? $d : min($best, $d);
+        }
+
+        return $best;
+    }
+
     /**
      * The sectors in between on the shortest wormhole route from $from to $to, if it has at most
      * $max of them; null if there is none that short.
@@ -241,9 +321,10 @@ class FlightPaths
      */
     public static function routes(array $flight, array $pos = []): array
     {
-        // Jumps are left out (most are flying through sectors nobody saw, and would join unrelated
-        // pieces), except out of a known teleport sector.
-        $pieces = array_filter($flight['moves'], static fn ($m) => $m['type'] === 'flight' || in_array($m['from'], self::KNOWN_TELEPORTS, true));
+        // Teleports are part of a route. A jump where it left by a wormhole and went on unseen is
+        // left out: nobody knows which way it flew (it may have turned back).
+        $pieces = array_filter($flight['moves'], static fn ($m) => $m['type'] === 'flight'
+            || ($m['exits']['teleport'] ?? 0) > 0 || in_array($m['from'], self::KNOWN_TELEPORTS, true));
         $out = [];
         $in = [];
         foreach ($pieces as $m) {

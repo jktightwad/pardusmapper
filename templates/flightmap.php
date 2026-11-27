@@ -47,21 +47,27 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     foreach ($stats['layout']['links'] as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
     foreach (DB::wormhole_links() as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
 
-    $flights = 0; $jumpsSeen = 0;
-    foreach ($flight['moves'] as $m) { if ($m['type'] === 'flight') { $flights += $m['count']; } else { $jumpsSeen += $m['count']; } }
+    $flights = 0; $teleports = 0; $unseen = 0;
+    foreach ($flight['moves'] as $m) {
+        if ($m['type'] === 'flight') { $flights += $m['count']; continue; }
+        $teleports += $m['exits']['teleport'];
+        $unseen += $m['exits']['wormhole'] + $m['exits']['unseen'] + $m['exits']['unknown'];
+    }
 ?>
 				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>
 					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
-					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors and <b><?= $jumpsSeen ?></b> jump<?= $jumpsSeen === 1 ? '' : 's' ?>.</p>
+					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw, and <b><?= $teleports ?></b> teleport<?= $teleports === 1 ? '' : 's' ?>.</p>
 				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
 					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. After a longer gap it could have gone anywhere, so no arrow is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
-					A <b>jump</b> (dashed purple) is a move to a sector with no wormhole link in that short time: a teleport, or sectors nobody saw it cross (it crosses a sector in a few minutes).
+					A move to a sector with no wormhole link in that short time is a flight on through sectors nobody saw (<b>dotted orange</b>),
+					unless it was <b>stuck</b> when last seen: away from any wormhole, with impassable energy on the next tile in the direction it was heading. Then it <b>teleported</b> (<b>dashed purple</b>).
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
-					<span><span class="sw" style="background:#b06cf0"></span>Jump (teleport or unseen sector)</span>
+					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 2px,transparent 2px 5px)"></span>Flew on unseen</span>
+					<span><span class="sw" style="background:#b06cf0"></span>Teleport (stuck, then gone)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
 					<span><span class="sw" style="border:2px dashed #b06cf0"></span>Known teleport sector</span>
 				</div>
@@ -115,9 +121,11 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 
         $byUni = [];
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
-        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
+        $isTeleport = $m['type'] === 'jump' && $m['exits']['teleport'] > 0;
+        $kind = $m['type'] === 'flight' ? 'flight' : ($isTeleport ? 'teleport' : 'flew on unseen');
+        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s', $m['from'], $m['to'], $kind,
             $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
-            $m['via'] ? '. Could have flown unseen via ' . implode(', ', $m['via']) : '');
+            $m['via'] ? '. Could have flown via ' . implode(', ', $m['via']) : '');
         $moveKey = $h($m['from'] . '|' . $m['to']);
 
         if ($m['type'] === 'flight') {
@@ -126,8 +134,9 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         } else {
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
-            printf('<g class="fm-move fm-jump" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-jump)"/></g>',
-                $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width);
+            printf('<g class="fm-move %s" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#%s)"/></g>',
+                $isTeleport ? 'fm-jump' : 'fm-unseen', $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width,
+                $isTeleport ? 'fm-arrow-jump' : 'fm-arrow-flight');
         }
     }
 ?>
@@ -172,7 +181,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				<p class="note">Pilots rarely see more than 2-3 sectors of a flight, so routes are pieced together from all the chains, in all universes and at any time.
 					A route goes on through a sector when a chain was seen flying through it from the same direction, or when only one way on has ever been seen from it.
 					Where there is more than one way on and nothing to choose between them, the route stops there; more sightings will join them up.
-					Jumps are not used to join routes (most are sectors nobody saw it cross), except out of a known teleport sector.
+					Teleports are part of routes. Where it left by a wormhole and flew on unseen, nobody knows which way it went (it may have turned back), so that does not join routes.
 					<i>Italic</i> sectors are where pieces were joined without one chain seen all the way through. Hover a route to show it on the map.</p>
 				<table class="stats routes">
 					<tr><th>#</th><th>Route</th><th>Heading</th><th>Sectors</th><th>Moves seen</th><th>Universes</th></tr>
@@ -187,7 +196,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					?>
 					<tr class="fm-route" data-moves="<?= $h(implode(',', $rt['moves'])) ?>">
 						<td><?= $i + 1 ?></td>
-						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a jump">(jump)</span>' : '' ?></td>
+						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a teleport">(teleport)</span>' : '' ?></td>
 						<td><?= $h($rt['heading'] ?? '-') ?></td>
 						<td><?= count($rt['sectors']) ?></td>
 						<td><?= $rt['seen'] ?></td>
@@ -263,23 +272,36 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				<?php if (count($flight['jumps']) === 0) { ?>
 					<p class="note">No jumps seen yet.</p>
 				<?php } else { ?>
-				<p class="note">Sectors the serpent left for a sector with no wormhole link, within <?= FlightPaths::LINK_WINDOW / 60 ?> minutes. It crosses a sector in a few minutes,
-					so most of these are sectors nobody saw it cross: where there is a short way round by wormholes, it is shown ("via").
-					Teleport sectors should show up here repeatedly, usually from the same tile, with no short way round.</p>
+				<p class="note">Sectors the serpent left for a sector with no wormhole link, within <?= FlightPaths::LINK_WINDOW / 60 ?> minutes.
+					Last seen on or next to a wormhole: it <b>left by the wormhole</b> and flew on through sectors nobody saw (the shortest way on is shown as "via").
+					Stuck away from any wormhole, with impassable energy on the next tile in the direction it was heading: it <b>teleported</b>.
+					Anywhere else it just <b>went out of view</b>, probably flying on to a wormhole unseen; that is not counted as a teleport.</p>
 				<table class="stats">
-					<tr><th>From</th><th>Jumps</th><th>Landed in</th><th>Last tile seen before jumping</th></tr>
+					<tr><th>From</th><th>Teleports</th><th>Left by a<br />wormhole</th><th>Went out<br />of view</th><th>Landed in</th><th>Tiles last seen before leaving</th></tr>
 					<?php foreach ($flight['jumps'] as $from => $j) {
-						arsort($j['to']); arsort($j['tiles']);
+						arsort($j['to']);
+						uasort($j['tiles'], static fn ($a, $b) => $b['n'] <=> $a['n']);
 						$to = [];
 						foreach (array_slice($j['to'], 0, 5, true) as $s => $n) {
 							$via = $flight['moves'][$from . '|' . $s]['via'] ?? null;
-							$to[] = $h($s) . ' ×' . $n . ($via ? ' <span style="color:#A1A1AF">(via ' . $h(implode(', ', $via)) . ')</span>' : ' <span class="live">(no short way round)</span>');
+							$to[] = $h($s) . ' ×' . $n . ($via ? ' <span style="color:#A1A1AF">(via ' . $h(implode(', ', $via)) . ')</span>' : '');
 						}
-						$tiles = []; foreach (array_slice($j['tiles'], 0, 3, true) as $t => $n) { $tiles[] = '[' . $h($t) . '] ×' . $n; }
+						$tiles = [];
+						foreach (array_slice($j['tiles'], 0, 4, true) as $t => $tl) {
+							$where = match ($tl['how']) {
+								'teleport' => sprintf('stuck, %d tiles from a wormhole', $tl['dist']),
+								'wormhole' => $tl['dist'] === 0 ? 'on a wormhole' : 'next to a wormhole',
+								'unseen' => sprintf('out of view, %d tiles from a wormhole', $tl['dist']),
+								default => 'no wormhole mapped in this sector',
+							};
+							$tiles[] = '[' . $h($t) . '] ×' . $tl['n'] . ' <span style="color:#A1A1AF">(' . $h($where) . ')</span>';
+						}
 					?>
 					<tr>
 						<td class="l"><a href="<?= $h($sectorUrl($mapUni, (string) $from)) ?>"><?= $h($from) ?></a><?= in_array($from, FlightPaths::KNOWN_TELEPORTS, true) ? ' <span class="live">known teleport</span>' : '' ?></td>
-						<td><?= $j['count'] ?></td>
+						<td><?= $j['teleport'] ? '<span class="live">' . $j['teleport'] . '</span>' : '0' ?></td>
+						<td><?= $j['wormhole'] ?></td>
+						<td><?= $j['unseen'] ?><?= $j['unknown'] ? ' <span title="no wormhole mapped in this sector, so it can\'t be told">(+' . $j['unknown'] . ' ?)</span>' : '' ?></td>
 						<td class="l"><?= implode(', ', $to) ?></td>
 						<td class="l"><?= implode(', ', $tiles) ?></td>
 					</tr>

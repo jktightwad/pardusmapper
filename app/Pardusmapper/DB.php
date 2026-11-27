@@ -984,6 +984,34 @@ class DB
     }
 
     /**
+     * Wormhole tiles (wormholes, X and Y holes) in the given sectors, from the Orion map (the
+     * universes share their layout).
+     *
+     * @param array $sectors sector names
+     * @return array sector => list of [x, y]
+     */
+    public static function wormhole_tiles(array $sectors): array
+    {
+        $sectors = array_values(array_unique(array_filter($sectors, 'is_string')));
+        if (!$sectors) {
+            return [];
+        }
+
+        $db = MySqlDB::instance();
+        $in = implode(',', array_fill(0, count($sectors), '?'));
+        $db->execute(sprintf("SELECT sector, x, y FROM Orion_Maps WHERE sector IN (%s)
+                AND ((wormhole IS NOT NULL AND wormhole <> '') OR fg LIKE '%%wormhole%%' OR fg LIKE '%%xhole%%' OR fg LIKE '%%yhole%%')", $in),
+            array_merge([str_repeat('s', count($sectors))], $sectors));
+
+        $tiles = [];
+        while ($row = $db->fetchObject()) {
+            $tiles[(string) $row->sector][] = [(int) $row->x, (int) $row->y];
+        }
+
+        return $tiles;
+    }
+
+    /**
      * Background and foreground image of every mapped tile in part of a sector (uses the Sector index).
      *
      * @return array list of objects: x, y, bg, fg
