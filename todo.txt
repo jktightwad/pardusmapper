@@ -1,3 +1,18 @@
 check files for TODO
 
 Script:
+
+Den limited view (Pirate / Dragon dens):
+- Request: show on the sector map where the nav view is limited, without blocking anything.
+- How it looks in Pardus: inside a den the outer ring of the nav grid becomes navNoData cells
+  (backgrounds/nodata.png, "No data from nav scanner"); e.g. 11x9 view -> 9x7 at Zeaex [5,11].
+  The Other Ships panel is hidden too.
+- Option A, server only (no script update): importmap2 saves every upload to connection_log
+  (payload + user). Passable tiles in view are always sent, impassable ones are known from the
+  map table, so a passable tile missing near the pilot was not visible. Compare each upload's reach
+  around the pilot with that pilot's usual reach; a shrink marks a den tile. Can be run over past
+  uploads (check how far back connection_log goes).
+- Option B, script 6.12: send navSizeHor/navSizeVer and the grid positions of navNoData cells;
+  the server works out the exact view radius at the pilot's tile. Exact, but only from pilots who
+  update (dens don't move, so a few are enough).
+- Store a view radius per tile, draw den areas as an overlay on the sector map.
