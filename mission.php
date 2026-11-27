@@ -58,7 +58,7 @@ $today = date("Y-m-d");
 $mission_list = Settings::MISSIONS_LIST;
 sort($mission_list);
 
-if (isset($_SESSION['loaded']) && ((strtotime($today) - strtotime($_SESSION['loaded'])) < 172800)) {
+if (Session::contributor(universe: $uni)) {
     require_once(templates('mission'));
 } else {
     require_once(templates('notlogged'));

@@ -48,7 +48,7 @@ class NPC{
         'opponents/euryale.png',
         'opponents/euryale_swarmlings.png',
         'opponents/pirate_famous.png',
-        'opponents/hidden_drugstash.png',
+        'opponents/hidden_drug_stash.png',
         'opponents/smuggler_lone.png',
         'opponents/medusa.png',
         'opponents/medusa_swarmling.png',
@@ -69,6 +69,21 @@ class NPC{
         //'opponents/vyrex_mutant_mauler.png',
         //'opponents/vyrex_stinger.png',
         //'opponents/vyrex_hatcher.png',
+    ];
+
+    /**
+     * Rare NPCs whose sighting history is shown (combined across all universes)
+     * on the sector map for logged-in users. image => display name.
+     * To track another NPC, add its image from Pardus_Npcs here.
+     */
+    public const HISTORY = [
+        'opponents/feral_serpent.png' => 'Feral Serpent',
+        'opponents/feral_serpent_1.png' => 'Feral Serpent',
+        'opponents/feral_serpent_2.png' => 'Feral Serpent',
+        'opponents/feral_serpent_3.png' => 'Feral Serpent',
+        'opponents/shadow.png' => 'Shadow',
+        'opponents/hidden_drug_stash.png' => 'Hidden Drug Stash',
+        'opponents/cyborg_corebreaker.png' => 'Cyborg Corebreaker',
     ];
 
     public const SINGLE = [
