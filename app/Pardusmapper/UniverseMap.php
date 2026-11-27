@@ -43,6 +43,16 @@ class UniverseMap
         $sectors = [];
         $links = [];
 
+        // Some cluster templates spell a sector with different capitals ("Epsilon eridani",
+        // "Delta pavonis"); use the real sector names so they match the sightings.
+        $canon = [];
+        $db = Core\MySqlDB::instance();
+        $db->execute('SELECT name FROM Pardus_Sectors');
+        while ($row = $db->fetchObject()) {
+            $canon[strtolower((string) $row->name)] = (string) $row->name;
+        }
+        $name = static fn (string $n): string => $canon[strtolower($n)] ?? $n;
+
         foreach (glob(ROOT . '/templates/clusters/*.php') ?: [] as $file) {
             $code = basename($file, '.php');
             if (in_array($code, self::CORE_PARTS, true)) {
@@ -67,7 +77,7 @@ class UniverseMap
                     if (is_null($cell)) {
                         continue;
                     }
-                    $sectors[$cell['name']] = [
+                    $sectors[$name($cell['name'])] = [
                         'x' => ($box['left'] + ($c + 0.5) * $cellW) * self::SCALE,
                         'y' => ($box['top'] + ($r + 0.5) * $cellH) * self::SCALE,
                         'w' => $cellW * self::SCALE,
@@ -78,7 +88,9 @@ class UniverseMap
                         [$dr, $dc] = self::DIRECTIONS[$dir];
                         $other = $grid[$r + $dr][$c + $dc] ?? null;
                         if (!is_null($other)) {
-                            $links[self::linkKey($cell['name'], $other['name'])] = [$cell['name'], $other['name']];
+                            $a = $name($cell['name']);
+                            $b = $name($other['name']);
+                            $links[self::linkKey($a, $b)] = [$a, $b];
                         }
                     }
                 }
