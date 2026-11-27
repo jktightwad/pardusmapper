@@ -25,21 +25,24 @@ declare(strict_types=1);
 		<link rel="stylesheet" type="text/css" href="<?php echo $game_css; ?>" />
 		<link rel="stylesheet" type="text/css" href="<?php echo $cluster_css; ?>" />
 		<style type="text/css">
+			/* sighting count, inside the tile's bottom-right corner (its td is position:relative) */
 			.npc-count-badge {
 				position: absolute;
-				top: -2px;
-				right: -2px;
-				background: rgba(255, 0, 0, 0.85);
+				bottom: 1px;
+				right: 1px;
+				background: rgba(200, 0, 0, 0.9);
 				color: white;
 				font-size: 9px;
+				line-height: 10px;
 				font-weight: bold;
-				padding: 1px 3px;
-				border-radius: 4px;
+				padding: 0 2px;
+				border-radius: 3px;
 				border: 1px solid white;
-				z-index: 10;
+				z-index: 40;
 				pointer-events: none;
 			}
-			.history-npc { opacity: 0.5; filter: grayscale(50%); }
+			/* past sighting (NPC not there now): nearly full brightness with a gold glow to set it apart */
+			#sectorTableMap img.history-npc { opacity: 0.9; filter: drop-shadow(0 0 3px #ffd34d); }
 		</style>
 		<script type="text/javascript" src="<?php echo $base_url; ?>/resources/main.js"></script>
 		<script type="text/javascript">
@@ -60,8 +63,19 @@ declare(strict_types=1);
 				}
 				return "";
 			}
+			// Remember the "Show Rare NPC History" choice in this browser across sectors and visits
+			function restoreHistoryToggle() {
+				var hist = document.getElementById('hist');
+				if (!hist) { return; }
+				try { hist.checked = (window.localStorage.getItem('pm_show_history') === '1'); } catch (e) {}
+			}
+			function toggleHistory(hist) {
+				try { window.localStorage.setItem('pm_show_history', hist.checked ? '1' : '0'); } catch (e) {}
+				updateMap();
+			}
 			function loadMap() {
-			<?php 
+				restoreHistoryToggle();
+			<?php
 				if (isset($_REQUEST['x1']) && isset($_REQUEST['y1'])) {
 					$loc = $s->s_id + $_REQUEST['y1'] + ($s->rows * $_REQUEST['x1']);
 					echo 'loadDetail(\'' . $base_url . '\',\'' . $uni . '\',' . $loc . ');';
@@ -123,7 +137,7 @@ declare(strict_types=1);
 				</form>
 				<?php if (isset($_SESSION['user'])) { ?>
 				<form id="history_toggle" action="" style="display:inline; margin-left: 10px; border-left: 1px solid #666; padding-left: 10px;">
-					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> <span title="Feral Serpent, Shadow, Hidden Drug Stash, Cyborg Corebreaker and Pirate Captain sightings from Orion, Artemis and Pegasus combined">Show Rare NPC History (all universes)</span>
+					<input type="checkbox" id="hist" onclick="toggleHistory(this)" name="history" value="1" /> <span title="Feral Serpent, Shadow, Hidden Drug Stash, Cyborg Corebreaker and Pirate Captain sightings from Orion, Artemis and Pegasus combined">Show Rare NPC History (all universes)</span>
 				</form>
 				<?php } ?>
 				<?php

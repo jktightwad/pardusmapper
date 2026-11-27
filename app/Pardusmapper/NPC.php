@@ -103,64 +103,38 @@ class NPC{
         return $groups;
     }
 
-    /** Records of the same NPC less than this many seconds apart are treated as one sighting. */
+    /** Records of the same NPC on the same tile less than this many seconds apart are one sighting. */
     public const SIGHTING_GAP = 7200;
 
     /**
      * Decide which NPC records are separate sightings.
      *
-     * A record is added each time an NPC is first seen on a tile, so a moving or flickering NPC
-     * produces many records for one sighting. The NPC ID is only captured when a pilot stands on
-     * the NPC's tile, so records without an ID may be the same NPC as an identified one.
+     * A record is added each time an NPC is first seen on a tile. Every move to a different tile
+     * is real movement and counts. But an NPC that drops out of view and is seen again on the
+     * same tile (cloaking, pilots seeing the tile from different positions) gets a new record
+     * each time. These tracked NPCs have long respawn times, so records of the same NPC on the
+     * same tile less than 2 hours apart are treated as one sighting. The window rolls: each
+     * repeat extends it.
      *
-     * Rules, per universe and NPC name, using the time the record was added (`spotted`):
-     *  - with an NPC ID: a new sighting unless that same ID, or an unidentified one,
-     *    had a record added less than 2 hours earlier
-     *  - without an ID: a new sighting unless any record of that NPC was added less than
-     *    2 hours earlier
+     * Same NPC = same universe and name (Feral Serpent variants are one name); the NPC ID is not
+     * used because it is only captured when a pilot stands on the tile.
      *
-     * Adds ->ts (UTC epoch of `spotted`) and ->counted (bool) to each row.
+     * Adds ->ts (UTC epoch of `spotted`) and ->counted (false for a same-tile repeat) to each row.
      * Rows must be oldest first, as DB::npc_sightings() returns them.
      */
     public static function mark_sightings(array $rows): array
     {
-        $lastById = [];
-        $lastNoId = [];
-        $lastAny = [];
+        $lastOnTile = [];
 
         foreach ($rows as $r) {
             $r->ts = (int) strtotime($r->spotted . ' UTC');
-            $key = $r->uni . '|' . (self::HISTORY[$r->image] ?? $r->image);
-            $recent = static fn (?int $prev): bool => !is_null($prev) && ($r->ts - $prev) < self::SIGHTING_GAP;
-
-            if (!is_null($r->nid)) {
-                $idKey = $key . '|' . $r->nid;
-                $duplicate = $recent($lastById[$idKey] ?? null) || $recent($lastNoId[$key] ?? null);
-                $lastById[$idKey] = $r->ts;
-            } else {
-                $duplicate = $recent($lastAny[$key] ?? null);
-                $lastNoId[$key] = $r->ts;
-            }
-
-            $lastAny[$key] = $r->ts;
-            $r->counted = !$duplicate;
+            $key = implode('|', [$r->uni, self::HISTORY[$r->image] ?? $r->image, $r->sector, $r->x, $r->y]);
+            $prev = $lastOnTile[$key] ?? null;
+            $r->counted = is_null($prev) || ($r->ts - $prev) >= self::SIGHTING_GAP;
+            $lastOnTile[$key] = $r->ts;
         }
 
         return $rows;
-    }
-
-    /**
-     * Is this record a new visit to its tile? Records of the same NPC (universe + name) on the
-     * same tile less than 2 hours apart are one visit (NPC flickering in and out of view).
-     * Pass the same $state array for every row; rows need ->ts from mark_sightings().
-     */
-    public static function new_tile_visit(array &$state, object $r): bool
-    {
-        $key = implode('|', [$r->uni, self::HISTORY[$r->image] ?? $r->image, $r->sector, $r->x, $r->y]);
-        $prev = $state[$key] ?? null;
-        $state[$key] = $r->ts;
-
-        return is_null($prev) || ($r->ts - $prev) >= self::SIGHTING_GAP;
     }
 
     public const SINGLE = [

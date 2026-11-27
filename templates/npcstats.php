@@ -93,11 +93,10 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 					</tr>
 					<?php } ?>
 				</table>
-				<p class="note">The mapper adds a record each time a pilot's script first sees one of these NPCs on a tile. A moving or flickering NPC makes many records,
-					so <b>Sightings</b> only counts a record if the same NPC had no record in that universe in the 2 hours before it (hover a number for the raw record count).
-					The NPC ID is only recorded when a pilot stands on its tile; records without an ID are not counted if any record of that NPC came less than 2 hours before.
-					IDs have been recorded since early 2021. All times are when the NPC was first seen on a tile, shown in your local time.
-					"Seen now" is how many have not yet been reported gone.</p>
+				<p class="note">A <b>sighting</b> is the NPC being seen on a tile. Every tile it moves to counts, so you can follow its path.
+					If it drops out of view and is seen again on the same tile less than 2 hours later, that is the same sighting, not a new one
+					(hover a number for the raw record count). The NPC ID is only recorded when a pilot stands on its tile, and has been recorded since early 2021.
+					All times are when the NPC was first seen on a tile, shown in your local time. "Seen now" is how many have not yet been reported gone.</p>
 
 <?php } elseif ($stats['view'] === 'npc') { ?>
 				<h3>Unique NPC IDs</h3>
@@ -127,8 +126,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 				<?php } ?>
 
 				<h3>Where it has been seen (all IDs, all universes)</h3>
-				<p class="note">Busiest sectors first. Numbers are visits to a tile (the same NPC on the same tile less than 2 hours apart is one visit).
-					Brighter tiles have more visits; green tiles have one there now. Click a sector name to open its map.</p>
+				<p class="note">Busiest sectors first. Brighter tiles have more sightings; green tiles have one there now. Hover a tile for its count. Click a sector name to open its map.</p>
 				<div class="cards">
 				<?php foreach ($stats['sectors'] as $name => $sec) {
 					$max = max($sec['tiles']);
@@ -137,7 +135,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 						[$tx, $ty] = array_map('intval', explode(',', $tile));
 						$live = isset($sec['live'][$tile]);
 						$marks[] = ['x' => $tx, 'y' => $ty, 'weight' => $max > 1 ? ($n - 1) / ($max - 1) : 1, 'active' => $live,
-							'label' => sprintf('[%d,%d] %d visit%s%s', $tx, $ty, $n, $n === 1 ? '' : 's', $live ? ', there now' : '')];
+							'label' => sprintf('[%d,%d] %d sighting%s%s', $tx, $ty, $n, $n === 1 ? '' : 's', $live ? ', there now' : '')];
 					}
 					$byUni = [];
 					foreach ($sec['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
@@ -145,7 +143,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 					<div class="card">
 						<div class="sname"><a href="<?= $h($sectorUrl($uni, (string) $name)) ?>"><?= $h($name) ?></a></div>
 						<?= $sectorSvg($stats['dims'][$name] ?? null, $marks) ?>
-						<?= $sec['total'] ?> visit<?= $sec['total'] === 1 ? '' : 's' ?>, <?= count($sec['ids']) ?> ID<?= count($sec['ids']) === 1 ? '' : 's' ?><br />
+						<?= $sec['total'] ?> sighting<?= $sec['total'] === 1 ? '' : 's' ?>, <?= count($sec['ids']) ?> ID<?= count($sec['ids']) === 1 ? '' : 's' ?><br />
 						<?= $h(implode(', ', $byUni)) ?><br />
 						last seen <?= $when($sec['last']) ?>
 					</div>

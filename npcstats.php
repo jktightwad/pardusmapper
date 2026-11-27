@@ -50,7 +50,8 @@ $stats = ['view' => $view, 'slug' => $slug, 'groups' => $groups, 'u' => $trailUn
 
 // All dates are when a record was added (`spotted`), never `updated`: that is overwritten when
 // the NPC is reported gone. Rows come back oldest first, so the last row seen is the latest.
-// Counting rules (2-hour de-duplication) live in NPC::mark_sightings() and NPC::new_tile_visit().
+// Every tile an NPC is recorded on counts (movement); only repeats of the same NPC on the same
+// tile less than 2 hours apart are merged, see NPC::mark_sightings() (sets ->counted).
 
 if ($view === 'overview') {
     $all = [];
@@ -85,15 +86,12 @@ if ($view === 'npc') {
     $ids = [];      // "Uni|nid" => [...]
     $noid = [];     // Uni => separate sightings without an ID
     $sectors = [];  // sector => [...]
-    $visitState = [];
 
     foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'])) as $r) {
         if (!is_null($r->nid)) {
             $key = $r->uni . '|' . $r->nid;
-            $id = $ids[$key] ?? ['uni' => $r->uni, 'nid' => (int) $r->nid, 'sightings' => 0, 'prev' => null, 'sectors' => [], 'first' => $r->spotted, 'last' => null, 'active' => 0, 'where' => null];
-            // this ID's own sightings: its records more than 2 hours apart
-            if (is_null($id['prev']) || ($r->ts - $id['prev']) >= NPC::SIGHTING_GAP) { $id['sightings']++; }
-            $id['prev'] = $r->ts;
+            $id = $ids[$key] ?? ['uni' => $r->uni, 'nid' => (int) $r->nid, 'sightings' => 0, 'sectors' => [], 'first' => $r->spotted, 'last' => null, 'active' => 0, 'where' => null];
+            if ($r->counted) { $id['sightings']++; }
             $id['sectors'][$r->sector] = true;
             $id['last'] = $r->spotted;
             $id['active'] = (int) $r->active;
@@ -103,8 +101,7 @@ if ($view === 'npc') {
             $noid[$r->uni] = ($noid[$r->uni] ?? 0) + 1;
         }
 
-        // sector cards count visits per tile (same NPC, same tile, under 2 hours apart = one visit)
-        if (!NPC::new_tile_visit($visitState, $r)) {
+        if (!$r->counted) {
             continue;
         }
         $sec = $sectors[$r->sector] ?? ['total' => 0, 'ids' => [], 'unis' => [], 'last' => null, 'tiles' => [], 'live' => []];
@@ -132,9 +129,8 @@ if ($view === 'trail') {
     // Consecutive records in the same sector become one step of the trail.
     // Repeats on the same tile under 2 hours apart (flickering in and out of view) are skipped.
     $steps = [];
-    $visitState = [];
     foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'], universe: $trailUni, nid: $nid)) as $r) {
-        if (!NPC::new_tile_visit($visitState, $r)) {
+        if (!$r->counted) {
             if ((int) $r->active === 1 && count($steps)) {
                 // a skipped repeat can still be the live record: mark its tile as "there now"
                 $last = count($steps) - 1;

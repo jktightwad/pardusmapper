@@ -65,17 +65,16 @@ while ($q = $dbClass->fetchObject()) {
 // Rare NPC sighting history, combined across all universes (logged-in users only)
 // Times come from when the record was added (`spotted`); `updated` is overwritten when the NPC
 // is reported gone, so it is not a "last seen" time. Records of the same NPC on the same tile
-// less than 2 hours apart count as one visit (see NPC::new_tile_visit).
+// less than 2 hours apart count as one sighting (see NPC::mark_sightings).
 // $hist[x][y] = ['total' => visits, 'last' => datetime, 'image' => latest image, 'title' => tooltip]
 $hist = [];
 if ($history && isset($_SESSION['user'])) {
     $tracked = NPC::HISTORY;
     $tiles = [];
-    $visitState = [];
 
     $records = NPC::mark_sightings(DB::npc_sightings(images: array_keys($tracked), sector: $s->name));
     foreach ($records as $row) {
-        if (!NPC::new_tile_visit($visitState, $row)) {
+        if (!$row->counted) {
             continue;
         }
         $hx = (int) $row->x;
@@ -139,6 +138,7 @@ for ($y = 0;$y < $s->rows;$y++) {
             $return .= '<td id="' . $map->id . '"';
             if ($grid) { $return .= ' class="grid"'; }
             else { $return .= ' class="nogrid"'; }
+            if (isset($hist[$x][$y])) { $return .= ' style="position:relative"'; } // anchors the sighting count badge
             if (!$map->wormhole && (($showfg && $map->fg) || ($shownpc && $map->npc && (!in_array($map->npc,$npc_list) || isset($_SESSION['user']))))) {
                 $return .= ' onClick="loadDetail(\'' . $base_url . '\',\'' . $uni . '\',' . $map->id . ');return true;" onMouseOut="closeInfo();" onMouseOver="openInfo(\'' . $base_url . '\',\'' . $uni . '\',' . $map->id . ');"';
             } 
@@ -222,13 +222,13 @@ for ($y = 0;$y < $s->rows;$y++) {
                         $hist_title = isset($hist[$x][$y])
                             ? ' title="' . htmlspecialchars($hist[$x][$y]['title']) . '" data-utc="' . htmlspecialchars($hist[$x][$y]['utc']) . '" data-utc-text="' . htmlspecialchars($hist[$x][$y]['utc_text']) . '"'
                             : '';
-                        $return .= '<div style="position:relative; display:inline-block; vertical-align:top;"' . $hist_title . '>';
-                        $return .= '<img class="' . $npc_id . '" src="' . $npc_img . '" alt="' . $npc_diff['string'] . '" />';
+                        // plain image like every other tile layer (bg/fg/npc stack via margin-top:-32px)
+                        $return .= '<img class="' . $npc_id . '" src="' . $npc_img . '" alt="' . $npc_diff['string'] . '"' . $hist_title . ' />';
 
+                        // sighting count, pinned to this tile's bottom-right corner (the td is position:relative)
                         if (isset($hist[$x][$y])) {
                             $return .= '<span class="npc-count-badge">' . $hist[$x][$y]['total'] . '</span>';
                         }
-                        $return .= '</div>';
                     }
                 }
             }
