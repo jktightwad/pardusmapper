@@ -61,7 +61,8 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last.
 					When the next sighting is <?= FlightPaths::LINK_WINDOW / 60 ?>-<?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later in another sector, the <b>likely route</b> in between is filled in (faint dots):
 					the shortest way along moves already seen, else by wormholes, if it could fly it in that time.
-					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?>.)<?php } ?>
+					Not if it was stuck when last seen (see teleports below): then it teleported, and nothing is filled in.
+					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none'] + $gs['teleport']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?><?= $gs['teleport'] ? ', ' . $gs['teleport'] . ' teleport' . ($gs['teleport'] === 1 ? '' : 's') : '' ?>.)<?php } ?>
 					More than <?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later is a different flyby and route, and nothing is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.

@@ -1070,6 +1070,35 @@ class DB
     }
 
     /**
+     * Which of the given tile ids are passable. Pardus_Maps lists every passable tile (the whole
+     * universe has long been mapped), so a tile that isn't in it is impassable.
+     *
+     * @param array $ids tile ids (s_id + x * rows + y)
+     * @return array|null id => true for the passable ones; null if Pardus_Maps can't be read
+     */
+    public static function passable_tiles(array $ids): ?array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (!$ids) {
+            return [];
+        }
+
+        $db = MySqlDB::instance();
+        try {
+            $db->execute(sprintf("SELECT id FROM Pardus_Maps WHERE id IN (%s) AND bg NOT LIKE '%%energymax%%'", implode(',', array_fill(0, count($ids), '?'))),
+                array_merge([str_repeat('i', count($ids))], $ids));
+        } catch (\Throwable) {
+            return null;
+        }
+        $passable = [];
+        while ($row = $db->fetchObject()) {
+            $passable[(int) $row->id] = true;
+        }
+
+        return $passable;
+    }
+
+    /**
      * Background and foreground image of every mapped tile in part of a sector (uses the Sector index).
      *
      * @return array list of objects: x, y, bg, fg
@@ -1108,7 +1137,7 @@ class DB
 
         $db = MySqlDB::instance();
         $db->execute(
-            sprintf('SELECT name, rows, cols, c_id FROM Pardus_Sectors WHERE name IN (%s)', implode(',', array_fill(0, count($names), '?'))),
+            sprintf('SELECT name, s_id, rows, cols, c_id FROM Pardus_Sectors WHERE name IN (%s)', implode(',', array_fill(0, count($names), '?'))),
             array_merge([str_repeat('s', count($names))], $names)
         );
 

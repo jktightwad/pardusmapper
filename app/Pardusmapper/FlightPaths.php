@@ -119,7 +119,8 @@ class FlightPaths
 
             // seen in another sector 8-20 minutes later: a gap to fill with a likely route afterwards
             if (!is_null($p) && !$otherSerpent && !$joined && $p->sector !== $r->sector && $gap <= self::EXTRAPOLATE_WINDOW) {
-                $gapEvents[] = ['from' => $p->sector, 'to' => $r->sector, 'gap' => $gap, 'flyby' => $open[$r->uni], 'r' => $r];
+                $gapEvents[] = ['from' => $p->sector, 'to' => $r->sector, 'gap' => $gap, 'flyby' => $open[$r->uni], 'r' => $r,
+                                'x' => (int) $p->x, 'y' => (int) $p->y, 'tiles' => array_slice($trail[$open[$r->uni]]['tiles'], -2)];
             }
 
             // where it went next, for the flyby it just left
@@ -172,8 +173,18 @@ class FlightPaths
         foreach ($moves as $m) {
             if ($m['type'] === 'flight') { $seenOut[$m['from']][$m['to']] = true; }
         }
-        $guesses = ['seen' => 0, 'map' => 0, 'none' => 0];
+        $guesses = ['seen' => 0, 'map' => 0, 'none' => 0, 'teleport' => 0];
+        $gapWormholes = DB::wormhole_tiles(array_column($gapEvents, 'from'));
         foreach ($gapEvents as $g) {
+            // stuck away from any wormhole when it vanished: it teleported, so no route is filled in
+            $dist = self::wormholeDistance($gapWormholes[$g['from']] ?? [], $g['x'], $g['y']);
+            if (!is_null($dist) && $dist > self::NEAR_WORMHOLE && self::stuck($g['from'], $g['tiles'] ?: [[$g['x'], $g['y']]])) {
+                $guesses['teleport']++;
+                self::addMove($moves, $g['from'], $g['to'], 'jump', $g['r']);
+                $jumpEvents[] = ['from' => $g['from'], 'to' => $g['to'], 'x' => $g['x'], 'y' => $g['y'], 'tiles' => $g['tiles']];
+                $trail[$g['flyby']]['to'] ??= $g['to'];
+                continue;
+            }
             $maxBetween = max(0, intdiv($g['gap'], self::MIN_SECTOR_TIME) - 1); // sectors in between it could have crossed
             $how = 'seen';
             $between = self::shortestWay($seenOut, $g['from'], $g['to'], $maxBetween);
@@ -255,16 +266,34 @@ class FlightPaths
     private static function stuck(string $sector, array $tiles): bool
     {
         [$x, $y] = end($tiles);
-        $terrain = [];
-        foreach (DB::map_tiles('Orion', $sector, $x - 1, $x + 1, $y - 1, $y + 1) as $t) {
-            $terrain[(int) $t->x . ',' . (int) $t->y] = TileMap::category($t->bg, $t->fg);
-        }
-        // Blocked: off the edge of the sector (tiles count from 0,0), or mapped as impassable.
-        // A tile nobody has mapped is not assumed to be a wall.
         $dim = DB::sector_dims([$sector])[$sector] ?? null;
-        $blocked = static fn (int $tx, int $ty): bool => $tx < 0 || $ty < 0
-            || (!is_null($dim) && ($tx >= (int) $dim->cols || $ty >= (int) $dim->rows))
-            || ($terrain[$tx . ',' . $ty] ?? null) === TileMap::IMPASSABLE;
+        $offMap = static fn (int $tx, int $ty): bool => $tx < 0 || $ty < 0
+            || (!is_null($dim) && ($tx >= (int) $dim->cols || $ty >= (int) $dim->rows));
+
+        // Blocked: off the edge of the sector (tiles count from 0,0), or impassable. Pardus_Maps
+        // lists every passable tile, so a tile not in it is impassable.
+        $passable = null;
+        if (!is_null($dim) && isset($dim->s_id)) {
+            $id = static fn (int $tx, int $ty): int => (int) $dim->s_id + $tx * (int) $dim->rows + $ty;
+            $ids = [];
+            for ($dx = -1; $dx <= 1; $dx++) {
+                for ($dy = -1; $dy <= 1; $dy++) {
+                    if (!$offMap($x + $dx, $y + $dy)) { $ids[] = $id($x + $dx, $y + $dy); }
+                }
+            }
+            $passable = DB::passable_tiles($ids);
+        }
+        if (!is_null($passable)) {
+            $blocked = static fn (int $tx, int $ty): bool => $offMap($tx, $ty) || !isset($passable[$id($tx, $ty)]);
+        } else {
+            // without Pardus_Maps: the universe's own map; a tile nobody has mapped is not a wall
+            $terrain = [];
+            foreach (DB::map_tiles('Orion', $sector, $x - 1, $x + 1, $y - 1, $y + 1) as $t) {
+                $terrain[(int) $t->x . ',' . (int) $t->y] = TileMap::category($t->bg, $t->fg);
+            }
+            $blocked = static fn (int $tx, int $ty): bool => $offMap($tx, $ty)
+                || ($terrain[$tx . ',' . $ty] ?? null) === TileMap::IMPASSABLE;
+        }
 
         if (count($tiles) === 2) {
             [$px, $py] = $tiles[0];
