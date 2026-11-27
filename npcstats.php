@@ -11,6 +11,7 @@ require_once('app/settings.php');
  *   /{Uni}/npcstats?npc=feral_serpent        one NPC: its unique IDs + where it has been seen (by name)
  *   /{Uni}/npcstats?npc=feral_serpent&flight=1[&u=Orion]  Feral Serpent flight paths on the universe map
  *   /{Uni}/npcstats?npc=feral_serpent&u=Orion&nid=123     one serpent's flight path
+ *   /{Uni}/npcstats?npc=shadow&compare=1[&by=day|week|month][&oldest=1]  the universes side by side in time
  */
 
 use Pardusmapper\Core\ApiResponse;
@@ -19,6 +20,7 @@ use Pardusmapper\FlightPaths;
 use Pardusmapper\NPC;
 use Pardusmapper\Request;
 use Pardusmapper\Session;
+use Pardusmapper\SpawnCompare;
 use Pardusmapper\UniverseMap;
 
 $uni = Request::uni();
@@ -48,6 +50,9 @@ if (!is_null($slug)) {
     // only the Feral Serpent moves between sectors, so only it has a flight-path view
     $wantsFlight = Request::pbool(key: 'flight') || (!is_null($trailUni) && !is_null($nid));
     $view = ($slug === FlightPaths::SLUG && $wantsFlight) ? 'flight' : 'npc';
+    if (Request::pbool(key: 'compare')) {
+        $view = 'compare';
+    }
 }
 
 // keep every value the template needs in one place
@@ -90,6 +95,7 @@ if ($view === 'overview') {
 if ($view === 'npc') {
     $ids = [];      // "Uni|nid" => [...]
     $noid = [];     // Uni => separate sightings without an ID
+    $totals = [];   // Uni => all separate sightings, with or without an ID
     $sectors = [];  // sector => [...]
 
     foreach (NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'])) as $r) {
@@ -109,6 +115,7 @@ if ($view === 'npc') {
         if (!$r->counted) {
             continue;
         }
+        $totals[$r->uni] = ($totals[$r->uni] ?? 0) + 1;
         $sec = $sectors[$r->sector] ?? ['total' => 0, 'ids' => [], 'unis' => [], 'last' => null, 'tiles' => [], 'live' => []];
         $sec['total']++;
         if (!is_null($r->nid)) { $sec['ids'][$r->uni . '|' . $r->nid] = true; }
@@ -126,8 +133,25 @@ if ($view === 'npc') {
 
     $stats['ids'] = $ids;
     $stats['noid'] = $noid;
+    $stats['totals'] = $totals;
     $stats['sectors'] = $sectors;
     $stats['dims'] = DB::sector_dims(array_keys($sectors));
+}
+
+if ($view === 'compare') {
+    // The three universes side by side in time, and how closely they follow each other.
+    // See SpawnCompare for how sightings become appearances and how pairs are scored.
+    $period = vstring($_REQUEST['by'] ?? null);
+    $period = isset(SpawnCompare::PERIODS[$period]) ? $period : 'week';
+    $oldestFirst = Request::pbool(key: 'oldest');
+    $apps = SpawnCompare::appearances(NPC::mark_sightings(DB::npc_sightings(images: $groups[$slug]['images'])));
+    $clusterOf = array_map(static fn ($s) => $s['cluster'], UniverseMap::layout()['sectors']);
+
+    $stats['period'] = $period;
+    $stats['oldest'] = $oldestFirst;
+    $stats['appearances'] = count($apps);
+    $stats['pairs'] = SpawnCompare::compare($apps, SpawnCompare::PERIODS[$period], $clusterOf);
+    $stats['timeline'] = SpawnCompare::timeline($apps, $period, !$oldestFirst);
 }
 
 if ($view === 'flight') {
