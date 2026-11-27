@@ -17,6 +17,11 @@ declare(strict_types=1);
 		<div id="header_side"><?php require_once(templates('header_side')); ?></div>
 		<div id="body">
 			<center>
+			<?php if (isset($_SESSION['user'])) { ?>
+				<h2>You are logged in as <?php echo htmlspecialchars((string) $_SESSION['user']); ?>, but your mapper script hasn't sent any data from <?php echo htmlspecialchars((string) $uni); ?> in the last 48 hours.</h2>
+				<br>
+				<h2>NPC and Mission lists are for active contributors. Open Pardus <?php echo htmlspecialchars((string) $uni); ?> with the user script running and visit a few pages, then refresh this page. You do not need to log out and back in.</h2>
+			<?php } else { ?>
 				<h2> Please Log In to View Mission Information </h2>
 				<br>
 				<h2>To Setup an Account all you need to do is install the script, then log into Pardus or Refresh your Pardus Page.
@@ -30,7 +35,8 @@ declare(strict_types=1);
 				?>
 					ingame for assistance.
 				</h2>
-			</center>		
+			<?php } ?>
+			</center>	
 		</div>
 		<div id="footer"><?php require_once(templates('footer')); ?></div>
 	</body>

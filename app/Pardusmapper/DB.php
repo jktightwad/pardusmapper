@@ -5,6 +5,7 @@ namespace Pardusmapper;
 
 use Pardusmapper\Core\ApiResponse;
 use Pardusmapper\Core\MySqlDB;
+use Pardusmapper\Core\Settings;
 
 class DB
 {
@@ -850,6 +851,50 @@ class DB
         ]);
 
         return true;
+    }
+
+    /**
+     * Sighting history for one sector, combined across all universes.
+     *
+     * {Universe}_Test_Npcs keeps one row per sighting (deleted = 1 once it is gone), and
+     * all universes share the same map, so rows from every universe are grouped per tile.
+     *
+     * @param string $sector sector name
+     * @param array $images NPC images to include (see NPC::HISTORY)
+     * @return array list of objects: uni, x, y, image, total, last_seen
+     */
+    public static function npc_history(string $sector, array $images): array
+    {
+        if (count($images) === 0) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($images), '?'));
+
+        $parts = [];
+        $params = [''];
+        foreach (Settings::UNIVERSE as $universe) {
+            $parts[] = sprintf(
+                "SELECT '%s' AS uni, x, y, image, COUNT(*) AS total, MAX(COALESCE(updated, spotted)) AS last_seen
+                FROM %s_Test_Npcs
+                WHERE sector = ? AND image IN (%s) AND x IS NOT NULL AND y IS NOT NULL
+                GROUP BY x, y, image",
+                $universe, $universe, $placeholders
+            );
+            $params[0] .= str_repeat('s', count($images) + 1);
+            $params[] = $sector;
+            array_push($params, ...array_values($images));
+        }
+
+        $db = MySqlDB::instance();
+        $db->execute(implode(' UNION ALL ', $parts), $params);
+
+        $rows = [];
+        while ($row = $db->fetchObject()) {
+            $rows[] = $row;
+        }
+
+        return $rows;
     }
 
     /**

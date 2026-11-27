@@ -62,23 +62,48 @@ while ($q = $dbClass->fetchObject()) {
     // $m[$q->id] = $q; // Uncomment if you want to use id as the key
 }
 
-// Handle NPC Sighting History
-$counts = [];
-if ($history) {
-    // Count all sightings per tile for Shadows and all Feral Serpent variants
-    $dbClass->execute(sprintf("SELECT id, COUNT(*) as total FROM %s_Npcs WHERE npc = 'Shadow' OR npc LIKE 'Feral Serpent%%' GROUP BY id", $uni));
-    while ($c_row = $dbClass->fetchObject()) {
-        $counts[$c_row->id] = (int)$c_row->total;
+// Rare NPC sighting history, combined across all universes (logged-in users only)
+// $hist[x][y] = ['total' => int, 'last' => datetime, 'image' => latest image, 'title' => tooltip]
+$hist = [];
+if ($history && isset($_SESSION['user'])) {
+    $tracked = NPC::HISTORY;
+    $tiles = [];
+
+    foreach (DB::npc_history(sector: $s->name, images: array_keys($tracked)) as $row) {
+        $hx = (int) $row->x;
+        $hy = (int) $row->y;
+        $label = $tracked[$row->image] ?? $row->image;
+        $tile = $tiles[$hx][$hy] ?? ['total' => 0, 'last' => null, 'image' => null, 'npcs' => []];
+
+        $tile['total'] += (int) $row->total;
+        $tile['npcs'][$label][$row->uni] = ($tile['npcs'][$label][$row->uni] ?? 0) + (int) $row->total;
+        if (is_null($tile['last']) || strcmp((string) $row->last_seen, (string) $tile['last']) > 0) {
+            $tile['last'] = $row->last_seen;
+            $tile['image'] = $row->image;
+        }
+
+        $tiles[$hx][$hy] = $tile;
     }
 
-    // Identify deleted sightings to show as historical markers on empty tiles
-    $dbClass->execute(sprintf("SELECT * FROM %s_Npcs WHERE deleted = 1 AND sector = ? AND (npc = 'Shadow' OR npc LIKE 'Feral Serpent%%')", $uni), ['s', $sector]);
-    while ($h_row = $dbClass->fetchObject()) {
-        if (isset($m[$h_row->x][$h_row->y]) && empty($m[$h_row->x][$h_row->y]->npc)) {
-            $m[$h_row->x][$h_row->y]->npc = $h_row->npc;
-            $m[$h_row->x][$h_row->y]->npc_updated = $h_row->date_added;
-            $m[$h_row->x][$h_row->y]->npc_cloaked = 0;
-            $m[$h_row->x][$h_row->y]->is_history = true;
+    foreach ($tiles as $hx => $col) {
+        foreach ($col as $hy => $tile) {
+            $lines = [];
+            foreach ($tile['npcs'] as $label => $perUni) {
+                $byUni = [];
+                foreach ($perUni as $u => $n) { $byUni[] = $u . ' ' . $n; }
+                $lines[] = sprintf('%s x%d (%s)', $label, array_sum($perUni), implode(', ', $byUni));
+            }
+            $lines[] = 'Last reported ' . substr((string) $tile['last'], 0, 10);
+            $tile['title'] = implode("\n", $lines);
+            $hist[$hx][$hy] = $tile;
+
+            // On empty tiles, show a faded marker for the most recently reported NPC
+            if (isset($m[$hx][$hy]) && empty($m[$hx][$hy]->npc)) {
+                $m[$hx][$hy]->npc = $tile['image'];
+                $m[$hx][$hy]->npc_updated = $tile['last'];
+                $m[$hx][$hy]->npc_cloaked = 0;
+                $m[$hx][$hy]->is_history = true;
+            }
         }
     }
 }
@@ -182,11 +207,12 @@ for ($y = 0;$y < $s->rows;$y++) {
                         if ($map->npc_cloaked == 1) { $npc_id .= 'Cloak'; }
                         if (isset($map->is_history)) { $npc_id .= ' history-npc'; }
 
-                        $return .= '<div style="position:relative; display:inline-block; vertical-align:top;">';
+                        $hist_title = isset($hist[$x][$y]) ? ' title="' . htmlspecialchars($hist[$x][$y]['title']) . '"' : '';
+                        $return .= '<div style="position:relative; display:inline-block; vertical-align:top;"' . $hist_title . '>';
                         $return .= '<img class="' . $npc_id . '" src="' . $npc_img . '" alt="' . $npc_diff['string'] . '" />';
-                        
-                        if (isset($counts[$map->id]) && $counts[$map->id] > 1) {
-                            $return .= '<span class="npc-count-badge">' . $counts[$map->id] . '</span>';
+
+                        if (isset($hist[$x][$y])) {
+                            $return .= '<span class="npc-count-badge">' . $hist[$x][$y]['total'] . '</span>';
                         }
                         $return .= '</div>';
                     }

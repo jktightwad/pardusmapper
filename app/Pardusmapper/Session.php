@@ -61,6 +61,42 @@ class Session
     }
 
     /**
+     * Is the logged-in user an active contributor in this universe?
+     *
+     * Elevated pages (NPC List, Mission List) are only for pilots whose user script has
+     * sent data from this universe recently. The `loaded` timestamp is updated in
+     * {Universe}_Users by include/extensionloaded.php whenever the script reports in.
+     *
+     * Read it fresh from the database on every call rather than trusting the copy saved
+     * in the session at login. Otherwise a pilot who logs in first and plays afterwards
+     * (e.g. after switching universes) stays locked out until they log out and back in.
+     *
+     * @param string $universe
+     * @param int $maxAgeSeconds
+     * @return bool
+     */
+    public static function contributor(string $universe, int $maxAgeSeconds = 172800): bool
+    {
+        $username = vstring($_SESSION['user'] ?? null);
+        if (is_null($username)) {
+            return false;
+        }
+
+        // DB::user matches on LOWER(username), so pass it lowercased (works regardless of collation)
+        $u = DB::user(universe: $universe, username: strtolower($username));
+        if (is_null($u) || empty($u->loaded)) {
+            return false;
+        }
+
+        // keep the session copy current for anything else that reads it
+        $_SESSION['loaded'] = $u->loaded;
+
+        // Same comparison as before (start of today UTC minus last report), so the access
+        // window is unchanged; only the source of `loaded` is different.
+        return (strtotime(date('Y-m-d')) - strtotime((string) $u->loaded)) < $maxAgeSeconds;
+    }
+
+    /**
      * Returns protected float from $_SESSION
      *
      * @param string $key

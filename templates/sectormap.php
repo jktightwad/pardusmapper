@@ -74,7 +74,8 @@ declare(strict_types=1);
 				var mode = getCheckedValue(document.getElementById('rf').mode);
 				var grid = getCheckedValue(document.getElementById('gl').mode);
 				var whole = getCheckedValue(document.getElementById('wh').mode);
-				var history = document.getElementById('hist').checked ? 1 : 0;
+				var hist = document.getElementById('hist');
+				var history = (hist && hist.checked) ? 1 : 0;
 				var params = "uni=" + <?php echo '"' . $uni . '"'; ?> + "&sector=" + <?php echo '"' . $sector . '"'; ?> + "&img_url=" + <?php echo '"' . $img_url . '"'; ?> + "&shownpc=" + <?php echo '"' . $shownpc . '"'; ?> + "&mode=" + mode + "&grid=" + grid + "&whole=" + whole + "&history=" + history;
 				<?php if (!is_null($id)) { echo 'params += "&loc=" + \'' . $id . '\''; } ?>
 				maphttp.open("POST",url,true);
@@ -119,9 +120,11 @@ declare(strict_types=1);
 					<input type="radio" onclick="updateMap()" name="mode" value="1" checked />Grid Lines
 					<input type="radio" onclick="updateMap()" name="mode" value="0" />No Grid Lines
 				</form>
+				<?php if (isset($_SESSION['user'])) { ?>
 				<form id="history_toggle" action="" style="display:inline; margin-left: 10px; border-left: 1px solid #666; padding-left: 10px;">
-					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> Show Serpent/Shadow History
+					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> <span title="Feral Serpent, Shadow, Hidden Drug Stash and Cyborg Corebreaker sightings from Orion, Artemis and Pegasus combined">Show Rare NPC History (all universes)</span>
 				</form>
+				<?php } ?>
 				<?php
 				if ($security==100){
 					echo '<form id="wh" action="" style="display:inline;"><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH<input type="radio" onclick="updateMap()" name="mode" value="1" />Remove WH</form>';

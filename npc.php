@@ -38,7 +38,7 @@ if (isset($sector)) {
 
 $today = date("Y-m-d");
 
-if (isset($_SESSION['loaded']) && ((strtotime($today) - strtotime($_SESSION['loaded'])) < 172800)) {
+if (Session::contributor(universe: $uni)) {
     require_once(templates('npc'));
 } else {
     require_once(templates('notlogged'));
