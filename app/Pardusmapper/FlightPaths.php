@@ -226,10 +226,11 @@ class FlightPaths
         }
         uasort($jumps, static fn ($a, $b) => $b['teleport'] <=> $a['teleport'] ?: $b['count'] <=> $a['count']);
 
-        // For a jump where it flew on unseen, the shortest way on it could have taken
+        // For a jump where it flew on unseen, the shortest ways on it could have taken (all of them
+        // when there are several of the same length)
         foreach ($moves as &$m) {
             $m['via'] = ($m['type'] === 'jump' && ($m['exits']['wormhole'] + $m['exits']['unseen']) > 0)
-                ? self::shortestWay($neighbours, $m['from'], $m['to'], self::MAX_UNSEEN) : null;
+                ? self::shortestWays($neighbours, $m['from'], $m['to'], self::MAX_UNSEEN) : null;
         }
         unset($m);
 
@@ -258,8 +259,12 @@ class FlightPaths
         foreach (DB::map_tiles('Orion', $sector, $x - 1, $x + 1, $y - 1, $y + 1) as $t) {
             $terrain[(int) $t->x . ',' . (int) $t->y] = TileMap::category($t->bg, $t->fg);
         }
-        // a tile without a map row is impassable, as on the sector map
-        $blocked = static fn (int $tx, int $ty): bool => ($terrain[$tx . ',' . $ty] ?? TileMap::IMPASSABLE) === TileMap::IMPASSABLE;
+        // Blocked: off the edge of the sector (tiles count from 0,0), or mapped as impassable.
+        // A tile nobody has mapped is not assumed to be a wall.
+        $dim = DB::sector_dims([$sector])[$sector] ?? null;
+        $blocked = static fn (int $tx, int $ty): bool => $tx < 0 || $ty < 0
+            || (!is_null($dim) && ($tx >= (int) $dim->cols || $ty >= (int) $dim->rows))
+            || ($terrain[$tx . ',' . $ty] ?? null) === TileMap::IMPASSABLE;
 
         if (count($tiles) === 2) {
             [$px, $py] = $tiles[0];
@@ -279,6 +284,53 @@ class FlightPaths
         }
 
         return $open <= 1;
+    }
+
+    /**
+     * Every equally short wormhole route from $from to $to (e.g. Greandin -> Cassand through Regulus
+     * or through Aeg), as lists of the sectors in between; at most 4, and only if they have at most
+     * $max sectors in between. Null if there is none that short.
+     */
+    private static function shortestWays(array $neighbours, string $from, string $to, int $max): ?array
+    {
+        $dist = [$from => 0];
+        $parents = [$from => []];
+        $queue = [$from];
+        while ($queue) {
+            $s = array_shift($queue);
+            if ($dist[$s] > $max) {
+                break;
+            }
+            foreach (array_keys($neighbours[$s] ?? []) as $n) {
+                if (!isset($dist[$n])) {
+                    $dist[$n] = $dist[$s] + 1;
+                    $parents[$n] = [$s];
+                    $queue[] = $n;
+                } elseif ($dist[$n] === $dist[$s] + 1) {
+                    $parents[$n][] = $s; // another way of the same length
+                }
+            }
+        }
+        if (!isset($dist[$to]) || $dist[$to] - 1 > $max) {
+            return null;
+        }
+
+        $ways = [];
+        $walk = static function (string $s, array $tail) use (&$walk, &$ways, $parents, $from): void {
+            if (count($ways) >= 4) {
+                return;
+            }
+            if ($s === $from) {
+                $ways[] = $tail;
+                return;
+            }
+            foreach ($parents[$s] as $p) {
+                $walk($p, $p === $from ? $tail : [$p, ...$tail]);
+            }
+        };
+        $walk($to, []);
+
+        return $ways;
     }
 
     /** Tiles from ($x, $y) to the nearest wormhole tile (diagonal steps count as one); null if none is known. */

@@ -136,7 +136,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
             $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s%s', $m['from'], $m['to'], $kind,
                 $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
                 $m['guessed'] ? sprintf('; also filled in %d time%s as the likely route', $m['guessed'], $m['guessed'] === 1 ? '' : 's') : '',
-                $m['via'] ? '. Could have flown via ' . implode(', ', $m['via']) : '');
+                $m['via'] ? '. Could have flown via ' . implode(' or via ', array_map(static fn ($w) => implode(', ', $w), $m['via'])) : '');
         }
         $moveKey = $h($m['from'] . '|' . $m['to']);
 
@@ -296,7 +296,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 						$to = [];
 						foreach (array_slice($j['to'], 0, 5, true) as $s => $n) {
 							$via = $flight['moves'][$from . '|' . $s]['via'] ?? null;
-							$to[] = $h($s) . ' ×' . $n . ($via ? ' <span style="color:#A1A1AF">(via ' . $h(implode(', ', $via)) . ')</span>' : '');
+							$to[] = $h($s) . ' ×' . $n . ($via ? ' <span style="color:#A1A1AF">(via ' . $h(implode(' or via ', array_map(static fn ($w) => implode(', ', $w), $via))) . ')</span>' : '');
 						}
 						$tiles = [];
 						foreach (array_slice($j['tiles'], 0, 4, true) as $t => $tl) {
