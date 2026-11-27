@@ -7,6 +7,8 @@ declare(strict_types=1);
 /** @var string $title */
 /** @var array $stats */
 
+use Pardusmapper\TileMap;
+
 $h = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES);
 // Database times are UTC. Each is printed as "YYYY-MM-DD HH:MM UTC" and rewritten to the viewer's
 // local time by pmLocalizeTimes() (resources/main.js) when the page loads.
@@ -17,27 +19,63 @@ $statsUrl = $base_url . '/' . $uni . '/npcstats';
 $sectorUrl = static fn (string $u, string $sector): string => $base_url . '/' . $u . '/' . rawurlencode($sector);
 
 /**
- * Small SVG of a sector grid with marked tiles.
- * $marks: list of ['x','y','label','weight' 0..1, 'active' (optional), 'utc' (optional: a time in the label)]
+ * Colour-coded map of the part of a sector around the sightings (terrain, planets/starbases,
+ * wormholes from {Universe}_Maps), with the sightings outlined on top.
+ * $marks: list of ['x','y','label','weight' 0..1, 'active' (optional), 'utc' (optional: a time in the label),
+ *                  'n' (optional: stop number drawn on the tile)]
  */
-$sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): string {
-    $cell = 7;
-    $cols = $dim ? max(1, (int) $dim->cols) : 1 + max(array_column($marks, 'x') ?: [0]);
-    $rows = $dim ? max(1, (int) $dim->rows) : 1 + max(array_column($marks, 'y') ?: [0]);
+$sectorSvg = static function (string $u, string $sector, ?object $dim, array $marks) use ($h, $utcAttr): string {
+    $crop = TileMap::crop($dim, $marks);
+    [$x0, $y0, $x1, $y1] = $crop;
+    $cols = $x1 - $x0 + 1;
+    $rows = $y1 - $y0 + 1;
+    $cell = max(6, min(16, intdiv(360, $cols), intdiv(320, $rows)));
     $w = $cols * $cell;
     $hgt = $rows * $cell;
-    $svg = sprintf('<svg class="minimap" width="%d" height="%d" viewBox="0 0 %d %d" xmlns="http://www.w3.org/2000/svg">', $w, $hgt, $w, $hgt);
-    $svg .= sprintf('<rect width="%d" height="%d" class="mm-bg"/>', $w, $hgt);
-    foreach ($marks as $m) {
-        $opacity = 0.35 + 0.65 * max(0.0, min(1.0, (float) $m['weight']));
-        $svg .= sprintf(
-            '<rect x="%d" y="%d" width="%d" height="%d" class="mm-mark%s" fill-opacity="%.2f"><title%s>%s</title></rect>',
-            $m['x'] * $cell, $m['y'] * $cell, $cell, $cell, empty($m['active']) ? '' : ' mm-active', $opacity,
-            empty($m['utc']) ? '' : $utcAttr($m['utc']), $h($m['label'])
-        );
+
+    $svg = sprintf('<svg class="minimap" width="%d" height="%d" viewBox="0 0 %d %d" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">', $w, $hgt, $w, $hgt);
+
+    // terrain: runs of the same tile type in a row become one rectangle
+    foreach (TileMap::grid($u, $sector, $crop) as $ry => $line) {
+        $start = 0;
+        for ($rx = 1; $rx <= $cols; $rx++) {
+            if ($rx === $cols || $line[$rx] !== $line[$start]) {
+                $svg .= sprintf('<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>', $start * $cell, $ry * $cell, ($rx - $start) * $cell, $cell, TileMap::COLOURS[$line[$start]][1]);
+                $start = $rx;
+            }
+        }
     }
+
+    // faint grid lines
+    $path = '';
+    for ($i = 1; $i < $cols; $i++) { $path .= sprintf('M%d 0V%d', $i * $cell, $hgt); }
+    for ($i = 1; $i < $rows; $i++) { $path .= sprintf('M0 %dH%d', $i * $cell, $w); }
+    if ($path !== '') { $svg .= '<path d="' . $path . '" class="mm-grid"/>'; }
+
+    // sightings
+    foreach ($marks as $m) {
+        $opacity = 0.45 + 0.55 * max(0.0, min(1.0, (float) $m['weight']));
+        $mx = ((int) $m['x'] - $x0) * $cell;
+        $my = ((int) $m['y'] - $y0) * $cell;
+        $svg .= sprintf(
+            '<g class="mm-mark%s" opacity="%.2f"><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>',
+            empty($m['active']) ? '' : ' mm-active', $opacity, $mx + 1, $my + 1, $cell - 2, $cell - 2
+        );
+        if (isset($m['n']) && $cell >= 11) {
+            $svg .= sprintf('<text x="%.1f" y="%.1f">%d</text>', $mx + $cell / 2, $my + $cell / 2 + 3, $m['n']);
+        }
+        $svg .= sprintf('<title%s>%s</title></g>', empty($m['utc']) ? '' : $utcAttr($m['utc']), $h($m['label']));
+    }
+
     return $svg . '</svg>';
 };
+
+$legend = '<div class="legend">';
+foreach (TileMap::COLOURS as [$label, $colour]) {
+    $legend .= sprintf('<span><span class="sw" style="background:%s"></span>%s</span>', $colour, $h($label));
+}
+$legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sighting</span>'
+    . '<span><span class="sw" style="background:#00e5ff"></span>NPC there now</span></div>';
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -59,10 +97,14 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 			#stats .card { background: rgba(0,0,0,0.35); border: 1px solid #334649; padding: 6px; font-size: 11px; color: #A1A1AF; text-align: center; }
 			#stats .card .sname { font-size: 12px; font-weight: bold; }
 			#stats .arrow { color: #DFFF91; font-size: 18px; }
-			#stats svg.minimap { display: block; margin: 4px auto; }
-			#stats svg .mm-bg { fill: #0b1a22; stroke: #334649; }
-			#stats svg .mm-mark { fill: #ff5a3c; }
-			#stats svg .mm-active { fill: #6f6; }
+			#stats svg.minimap { display: block; margin: 4px auto; border: 1px solid #334649; }
+			#stats svg .mm-grid { stroke: rgba(255,255,255,0.10); stroke-width: 1; fill: none; }
+			/* sightings: yellow outlined square; cyan if the NPC is there now */
+			#stats svg .mm-mark rect { fill: rgba(255,225,77,0.55); stroke: #ffe14d; stroke-width: 2; }
+			#stats svg .mm-mark text { fill: #000; font: bold 9px sans-serif; text-anchor: middle; }
+			#stats svg .mm-active rect { fill: rgba(0,229,255,0.6); stroke: #00e5ff; }
+			#stats .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: #A1A1AF; margin: 4px 0 8px; }
+			#stats .legend span.sw { display: inline-block; width: 11px; height: 11px; margin-right: 4px; vertical-align: -1px; border: 1px solid #334649; }
 		</style>
 	</head>
 	<body>
@@ -126,7 +168,8 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 				<?php } ?>
 
 				<h3>Where it has been seen (all IDs, all universes)</h3>
-				<p class="note">Busiest sectors first. Brighter tiles have more sightings; green tiles have one there now. Hover a tile for its count. Click a sector name to open its map.</p>
+				<p class="note">Busiest sectors first, zoomed to the area around the sightings. Brighter squares have more sightings; cyan has one there now. Hover a square for its count. Click a sector name to open its full map.</p>
+				<?= $legend ?>
 				<div class="cards">
 				<?php foreach ($stats['sectors'] as $name => $sec) {
 					$max = max($sec['tiles']);
@@ -142,7 +185,7 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 				?>
 					<div class="card">
 						<div class="sname"><a href="<?= $h($sectorUrl($uni, (string) $name)) ?>"><?= $h($name) ?></a></div>
-						<?= $sectorSvg($stats['dims'][$name] ?? null, $marks) ?>
+						<?= $sectorSvg($uni, (string) $name, $stats['dims'][$name] ?? null, $marks) ?>
 						<?= $sec['total'] ?> sighting<?= $sec['total'] === 1 ? '' : 's' ?>, <?= count($sec['ids']) ?> ID<?= count($sec['ids']) === 1 ? '' : 's' ?><br />
 						<?= $h(implode(', ', $byUni)) ?><br />
 						last seen <?= $when($sec['last']) ?>
@@ -154,20 +197,22 @@ $sectorSvg = static function (?object $dim, array $marks) use ($h, $utcAttr): st
 				<?php if (count($stats['steps']) === 0) { ?>
 					<p class="note">No sightings found for this NPC ID.</p>
 				<?php } else { ?>
-				<p class="note">Sectors in the order this NPC was seen in them. Within a sector, later stops are brighter; hover a tile for its order and when it was first seen there. Green means it is there now. Times are your local time.</p>
+				<p class="note">Sectors in the order this NPC was seen in them, zoomed to the area it moved through. Squares are numbered in the order it reached them (later stops are brighter);
+					hover one for when it was first seen there, in your local time. Cyan means it is there now.</p>
+				<?= $legend ?>
 				<div class="cards">
 				<?php foreach ($stats['steps'] as $i => $step) {
 					$count = count($step['points']);
 					$marks = [];
 					foreach ($step['points'] as $p => $pt) {
-						$marks[] = ['x' => $pt['x'], 'y' => $pt['y'], 'weight' => $count > 1 ? $p / ($count - 1) : 1, 'active' => $pt['active'], 'utc' => $pt['spotted'],
+						$marks[] = ['x' => $pt['x'], 'y' => $pt['y'], 'weight' => $count > 1 ? $p / ($count - 1) : 1, 'active' => $pt['active'], 'utc' => $pt['spotted'], 'n' => $p + 1,
 							'label' => sprintf('#%d [%d,%d] first seen %s%s', $p + 1, $pt['x'], $pt['y'], $utcText($pt['spotted']), $pt['active'] ? ', still there' : '')];
 					}
 				?>
 					<?php if ($i > 0) { ?><span class="arrow">&rarr;</span><?php } ?>
 					<div class="card">
 						<div class="sname"><?= $i + 1 ?>. <a href="<?= $h($sectorUrl($stats['u'], $step['sector'])) ?>"><?= $h($step['sector']) ?></a></div>
-						<?= $sectorSvg($stats['dims'][$step['sector']] ?? null, $marks) ?>
+						<?= $sectorSvg($stats['u'], $step['sector'], $stats['dims'][$step['sector']] ?? null, $marks) ?>
 						<?= $count ?> stop<?= $count === 1 ? '' : 's' ?><?= $step['active'] ? ' <span class="live">here now</span>' : '' ?><br />
 						<?= $when($step['from']) ?><?= $step['to'] !== $step['from'] ? ' to ' . $when($step['to']) : '' ?>
 					</div>

@@ -854,6 +854,30 @@ class DB
     }
 
     /**
+     * Background and foreground image of every mapped tile in part of a sector (uses the Sector index).
+     *
+     * @return array list of objects: x, y, bg, fg
+     */
+    public static function map_tiles(string $universe, string $sector, int $x0, int $x1, int $y0, int $y1): array
+    {
+        if (!in_array($universe, Settings::UNIVERSE, true)) {
+            return [];
+        }
+
+        $db = MySqlDB::instance();
+        $db->execute(sprintf('SELECT x, y, bg, fg FROM %s_Maps WHERE sector = ? AND x BETWEEN ? AND ? AND y BETWEEN ? AND ?', $universe), [
+            'siiii', $sector, $x0, $x1, $y0, $y1
+        ]);
+
+        $rows = [];
+        while ($row = $db->fetchObject()) {
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
      * Grid size of several sectors in one query.
      *
      * @param array $names sector names
