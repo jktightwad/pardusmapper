@@ -4,21 +4,20 @@ declare(strict_types=1);
 namespace Pardusmapper;
 
 /**
- * Feral Serpent flight paths: turns its sightings into flybys and sector-to-sector moves.
+ * Feral Serpent flight paths: turns its sightings into flybys, observed chains and inferred routes.
  *
  * The serpent flies fast, so:
  * - A flyby is the serpent passing through a sector. Sightings in the same sector less than
  *   FLYBY_GAP apart are one flyby; further apart, it has come round again (another flyby).
- * - Two sightings in different sectors are one move only if they are at most LINK_WINDOW apart.
- *   With a longer gap it could have been anywhere in between, so nothing is drawn.
- * - A move between sectors linked by a wormhole is a flight. A move to any other sector in that
- *   short time is a jump: a teleport (e.g. from Nebul), or a sector nobody saw it cross.
- * - A different NPC ID means a different serpent: never joined.
+ * - A chain is what pilots saw of one flight: flybys in one universe, each in a different sector
+ *   from the last and at most LINK_WINDOW after it. With a longer gap it could have been anywhere
+ *   in between, so the chain ends. A different NPC ID (another serpent) also ends it.
+ * - A move between sectors linked by a wormhole is a flight; to any other sector in that short
+ *   time, a jump: a teleport (e.g. from Nebul), or a sector nobody saw it cross.
  *
- * Each universe has its own serpent, but they appear to fly the same routes. When a universe's
- * flyby has no move leading to it, a flyby in another universe in a neighbouring sector within
- * LINK_WINDOW before it is joined to it as a flight (linked across universes). That fills gaps
- * between pilots' observations; jumps are never made across universes.
+ * The universes are copies, and the serpent flies the same routes in each, at different times.
+ * Pilots rarely see more than 2-3 sectors of a flight, so routes are pieced together from the
+ * chains of all universes and times (routes()).
  */
 class FlightPaths
 {
@@ -38,14 +37,17 @@ class FlightPaths
     /** Same sector seen again more than this many seconds later: another flyby. */
     public const FLYBY_GAP = 1200;
 
-    /** Sightings in different sectors at most this many seconds apart are one move. */
+    /** Flybys in different sectors at most this many seconds apart are part of one chain. */
     public const LINK_WINDOW = 2700;
 
+    /** Stop looking for more routes after this many (the graph is small; this is a safety net). */
+    private const MAX_ROUTES = 60;
+
     /**
-     * @param string|null $universe one universe, or null for all three (linked across universes)
+     * @param string|null $universe one universe, or null for all three
      * @param int|null $nid one serpent (requires $universe)
-     * @return array ['moves' => key => [...], 'sectors' => name => [...], 'jumps' => sector => [...],
-     *                'records' => int, 'flybys' => int, 'linked' => int (moves joined across universes)]
+     * @return array ['moves' => "from|to" => [...], 'sectors' => name => [...], 'jumps' => sector => [...],
+     *                'turns' => sector => from => to => count, 'chains' => int, 'records' => int, 'flybys' => int]
      */
     public static function build(?string $universe = null, ?int $nid = null): array
     {
@@ -55,15 +57,15 @@ class FlightPaths
         $layout = UniverseMap::layout();
         foreach ($layout['links'] as [$a, $b]) { $adjacent[UniverseMap::linkKey($a, $b)] = true; }
         foreach (DB::wormhole_links() as [$a, $b]) { $adjacent[UniverseMap::linkKey($a, $b)] = true; }
-        $isAdjacent = static fn (string $a, string $b): bool => isset($adjacent[UniverseMap::linkKey($a, $b)]);
 
         $moves = [];
         $sectors = [];
         $jumps = [];
-        $last = [];    // universe => its latest sighting
-        $recent = [];  // flyby starts within LINK_WINDOW, all universes (for linking across universes)
+        $turns = [];
+        $last = [];   // universe => its latest sighting
+        $chain = [];  // universe => sectors of its current chain
+        $chains = 0;  // chains of 2 or more sectors
         $flybys = 0;
-        $linked = 0;
 
         foreach ($records as $r) {
             $r->ts = (int) strtotime($r->spotted . ' UTC');
@@ -82,7 +84,6 @@ class FlightPaths
             }
 
             // a new flyby of this sector
-            $recent = array_values(array_filter($recent, static fn ($q) => $r->ts - $q->ts <= self::LINK_WINDOW));
             $flybys++;
             $s = $sectors[$r->sector] ?? ['flybys' => 0, 'last' => null, 'active' => false, 'unis' => []];
             $s['flybys']++;
@@ -92,8 +93,9 @@ class FlightPaths
             $sectors[$r->sector] = $s;
 
             if ($joined && $p->sector !== $r->sector) {
-                $type = $isAdjacent($p->sector, $r->sector) ? 'flight' : 'jump';
-                self::addMove($moves, $p, $r, $type, false);
+                // the chain goes on
+                $type = isset($adjacent[UniverseMap::linkKey($p->sector, $r->sector)]) ? 'flight' : 'jump';
+                self::addMove($moves, $p->sector, $r->sector, $type, $r);
                 if ($type === 'jump') {
                     $j = $jumps[$p->sector] ?? ['count' => 0, 'to' => [], 'tiles' => []];
                     $j['count']++;
@@ -102,43 +104,187 @@ class FlightPaths
                     $j['tiles'][$tile] = ($j['tiles'][$tile] ?? 0) + 1;
                     $jumps[$p->sector] = $j;
                 }
-            } elseif (is_null($universe)) {
-                // Nothing in this universe leads here. Join it to the latest flyby in another universe
-                // in a neighbouring sector shortly before, if there is one.
-                $from = null;
-                foreach ($recent as $q) {
-                    if ($q->uni !== $r->uni && $q->sector !== $r->sector && $isAdjacent($q->sector, $r->sector)) {
-                        $from = $q; // $recent is oldest first, so the last match is the latest
-                    }
+                $c = &$chain[$r->uni];
+                if (count($c) === 1) { $chains++; }
+                $c[] = $r->sector;
+                $n = count($c);
+                if ($n >= 3) {
+                    // seen flying through $c[$n-2]: from $c[$n-3], on to $c[$n-1]
+                    $turns[$c[$n - 2]][$c[$n - 3]][$c[$n - 1]] = ($turns[$c[$n - 2]][$c[$n - 3]][$c[$n - 1]] ?? 0) + 1;
                 }
-                if ($from) {
-                    self::addMove($moves, $from, $r, 'flight', true);
-                    $linked++;
-                }
+                unset($c);
+            } else {
+                // a new chain starts here
+                $chain[$r->uni] = [$r->sector];
             }
-            $recent[] = $r;
         }
 
         uasort($jumps, static fn ($a, $b) => $b['count'] <=> $a['count']);
 
-        return ['moves' => $moves, 'sectors' => $sectors, 'jumps' => $jumps,
-                'records' => count($records), 'flybys' => $flybys, 'linked' => $linked];
+        return ['moves' => $moves, 'sectors' => $sectors, 'jumps' => $jumps, 'turns' => $turns,
+                'chains' => $chains, 'records' => count($records), 'flybys' => $flybys];
     }
 
-    /** Count a move from $p's sector to $r's. $across: joined from another universe's flyby. */
-    private static function addMove(array &$moves, object $p, object $r, string $type, bool $across): void
+    private static function addMove(array &$moves, string $from, string $to, string $type, object $r): void
     {
-        $key = $p->sector . '|' . $r->sector;
-        $m = $moves[$key] ?? ['from' => $p->sector, 'to' => $r->sector, 'type' => $type, 'count' => 0, 'across' => 0, 'unis' => [], 'last' => null];
+        $key = $from . '|' . $to;
+        $m = $moves[$key] ?? ['from' => $from, 'to' => $to, 'type' => $type, 'count' => 0, 'unis' => [], 'last' => null];
         $m['count']++;
-        if ($across) {
-            $m['across']++;
-            $label = $p->uni . ' → ' . $r->uni;
-        } else {
-            $label = $r->uni;
-        }
-        $m['unis'][$label] = ($m['unis'][$label] ?? 0) + 1;
+        $m['unis'][$r->uni] = ($m['unis'][$r->uni] ?? 0) + 1;
         $m['last'] = $r->spotted;
         $moves[$key] = $m;
+    }
+
+    /**
+     * Piece the observed chains together into routes.
+     *
+     * Every move seen (any universe, any time) is a piece. A route is extended through a sector
+     * when a chain was seen flying through it from the same direction (it shows which way it goes
+     * on), or, failing that, when the join is the only possibility both ways (one way on, one way
+     * in). Where the data allows more than one and nothing to choose between them, the route stops
+     * there rather than guess. It never turns straight back or visits a sector twice.
+     *
+     * @param array $flight from build()
+     * @param array $pos UniverseMap::layout()['sectors'], for the heading
+     * @return array list of ['sectors' => [...], 'moves' => ["from|to", ...], 'seen' => int (moves seen along it),
+     *               'unis' => uni => n, 'jumps' => int, 'joined' => [sector, ...] (joined without a chain through it),
+     *               'heading' => 'NE'|...|null], longest first
+     */
+    public static function routes(array $flight, array $pos = []): array
+    {
+        $out = [];
+        $in = [];
+        foreach ($flight['moves'] as $m) {
+            $out[$m['from']][$m['to']] = true;
+            $in[$m['to']][$m['from']] = true;
+        }
+        $turns = $flight['turns'];
+
+        $found = [];
+        foreach ($flight['moves'] as $m) {
+            foreach (self::forward([$m['from'], $m['to']], $out, $in, $turns) as $path) {
+                foreach (self::backward($path, $out, $in, $turns) as $full) {
+                    $found[implode('|', $full)] = $full;
+                }
+            }
+            if (count($found) >= self::MAX_ROUTES) {
+                break;
+            }
+        }
+
+        // longest first; drop any route that is part of a longer one
+        $all = array_values($found);
+        usort($all, static fn ($a, $b) => count($b) <=> count($a));
+        $kept = [];
+        foreach ($all as $route) {
+            $needle = '|' . implode('|', $route) . '|';
+            foreach ($kept as $k) {
+                if (str_contains('|' . implode('|', $k) . '|', $needle)) {
+                    continue 2;
+                }
+            }
+            $kept[] = $route;
+        }
+
+        $routes = [];
+        foreach ($kept as $route) {
+            $keys = [];
+            $seen = 0;
+            $unis = [];
+            $jumps = 0;
+            for ($i = 1; $i < count($route); $i++) {
+                $key = $route[$i - 1] . '|' . $route[$i];
+                $m = $flight['moves'][$key];
+                $keys[] = $key;
+                $seen += $m['count'];
+                foreach ($m['unis'] as $u => $n) { $unis[$u] = ($unis[$u] ?? 0) + $n; }
+                $jumps += $m['type'] === 'jump' ? 1 : 0;
+            }
+            $joined = [];
+            for ($i = 1; $i < count($route) - 1; $i++) {
+                if (empty($turns[$route[$i]][$route[$i - 1]][$route[$i + 1]])) {
+                    $joined[] = $route[$i];
+                }
+            }
+            $routes[] = ['sectors' => $route, 'moves' => $keys, 'seen' => $seen, 'unis' => $unis, 'jumps' => $jumps,
+                         'joined' => $joined, 'heading' => self::heading($pos[$route[0]] ?? null, $pos[end($route)] ?? null)];
+        }
+        usort($routes, static fn ($a, $b) => count($b['sectors']) <=> count($a['sectors']) ?: $b['seen'] <=> $a['seen']);
+
+        return $routes;
+    }
+
+    /**
+     * Without a chain seen through $cur, joining $prev -> $cur -> $next is only safe when it is the
+     * only possibility both ways: the only way on from $cur (other than back to $prev), and the only
+     * way into $cur (other than from $next).
+     */
+    private static function onlyWay(string $prev, string $cur, string $next, array $out, array $in): bool
+    {
+        $on = array_diff(array_keys($out[$cur] ?? []), [$prev]);
+        $into = array_diff(array_keys($in[$cur] ?? []), [$next]);
+
+        return array_values($on) === [$next] && array_values($into) === [$prev];
+    }
+
+    /** All ways to extend $path forwards (see routes()). */
+    private static function forward(array $path, array $out, array $in, array $turns): array
+    {
+        $cur = $path[count($path) - 1];
+        $prev = $path[count($path) - 2];
+        $ways = array_values(array_filter(array_keys($out[$cur] ?? []), static fn ($s) => !in_array($s, $path, true)));
+        $next = array_values(array_intersect(array_keys($turns[$cur][$prev] ?? []), $ways));
+        if (!$next && count($ways) === 1 && self::onlyWay($prev, $cur, $ways[0], $out, $in)) {
+            $next = $ways;
+        }
+
+        if (!$next || count($path) > 40) {
+            return [$path];
+        }
+        $paths = [];
+        foreach ($next as $n) {
+            array_push($paths, ...self::forward([...$path, $n], $out, $in, $turns));
+        }
+
+        return $paths;
+    }
+
+    /** All ways to extend $path backwards (see routes()). */
+    private static function backward(array $path, array $out, array $in, array $turns): array
+    {
+        $cur = $path[0];
+        $next = $path[1];
+        $ways = array_values(array_filter(array_keys($in[$cur] ?? []), static fn ($s) => !in_array($s, $path, true)));
+        $prev = array_values(array_filter($ways, static fn ($p) => !empty($turns[$cur][$p][$next])));
+        if (!$prev && count($ways) === 1 && self::onlyWay($ways[0], $cur, $next, $out, $in)) {
+            $prev = $ways;
+        }
+
+        if (!$prev || count($path) > 40) {
+            return [$path];
+        }
+        $paths = [];
+        foreach ($prev as $p) {
+            array_push($paths, ...self::backward([$p, ...$path], $out, $in, $turns));
+        }
+
+        return $paths;
+    }
+
+    /** Overall compass heading from one sector to another (map y grows downwards = south). */
+    public static function heading(?array $from, ?array $to): ?string
+    {
+        if (is_null($from) || is_null($to)) {
+            return null;
+        }
+        $dx = $to['x'] - $from['x'];
+        $dy = $from['y'] - $to['y'];
+        if (abs($dx) < 1 && abs($dy) < 1) {
+            return null;
+        }
+        $deg = fmod(rad2deg(atan2($dx, $dy)) + 360, 360); // 0 = north, clockwise
+        $names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+        return $names[(int) round($deg / 45) % 8];
     }
 }

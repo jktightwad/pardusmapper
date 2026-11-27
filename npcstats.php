@@ -159,6 +159,7 @@ if ($view === 'flight') {
     // or one serpent ID (u + nid). See FlightPaths for how sightings become moves.
     $stats['flight'] = FlightPaths::build(universe: $trailUni, nid: is_null($trailUni) ? null : $nid);
     $stats['layout'] = UniverseMap::layout();
+    $stats['routes'] = FlightPaths::routes($stats['flight'], $stats['layout']['sectors']);
 }
 
 $title = 'Rare NPC Stats';

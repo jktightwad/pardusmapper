@@ -50,17 +50,17 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     $flights = 0; $jumpsSeen = 0;
     foreach ($flight['moves'] as $m) { if ($m['type'] === 'flight') { $flights += $m['count']; } else { $jumpsSeen += $m['count']; } }
 ?>
-				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>:
-					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors<?= $flight['linked'] ? ' (' . $flight['linked'] . ' of them joined across universes)' : '' ?> and <b><?= $jumpsSeen ?></b> jump<?= $jumpsSeen === 1 ? '' : 's' ?>.</p>
+				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>
+					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
+					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors and <b><?= $jumpsSeen ?></b> jump<?= $jumpsSeen === 1 ? '' : 's' ?>.</p>
 				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
-					An arrow joins two flybys in different sectors only if they were at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes apart; after a longer gap it could have gone anywhere, so nothing is drawn.
+					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. After a longer gap it could have gone anywhere, so no arrow is drawn.
+					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
 					A <b>jump</b> (dashed purple) is a move to a sector with no wormhole link in that short time: a teleport, or a sector nobody saw it cross.
-					<?php if (is_null($stats['u'])) { ?>Each universe has its own serpent, but they seem to fly the same routes: a flyby with no move leading to it in its own universe is joined to one in a neighbouring sector of another universe shortly before (<b>dashed orange</b>).<?php } ?>
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
-					<?php if (is_null($stats['u'])) { ?><span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 4px,transparent 4px 7px)"></span>Flight joined across universes</span><?php } ?>
 					<span><span class="sw" style="background:#b06cf0"></span>Jump (teleport or unseen sector)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
 					<span><span class="sw" style="border:2px dashed #b06cf0"></span>Known teleport sector</span>
@@ -115,20 +115,18 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 
         $byUni = [];
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
-        $label = sprintf('%s → %s (%s): seen %d time%s (%s)%s, last %s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
-            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni),
-            $m['across'] ? sprintf('; %d joined across universes', $m['across']) : '', $utcText((string) $m['last']));
+        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
+            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']));
+        $moveKey = $h($m['from'] . '|' . $m['to']);
 
         if ($m['type'] === 'flight') {
-            // only ever joined across universes: dashed, so it reads as less certain
-            $acrossOnly = $m['across'] === $m['count'];
-            printf('<g class="fm-move fm-flight%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
-                $acrossOnly ? ' fm-across' : '', $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
+            printf('<g class="fm-move fm-flight" data-move="%s"><title%s>%s</title><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-flight)"/></g>',
+                $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $x2, $y2, $width);
         } else {
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
-            printf('<g class="fm-move fm-jump"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-jump)"/></g>',
-                $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width);
+            printf('<g class="fm-move fm-jump" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#fm-arrow-jump)"/></g>',
+                $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width);
         }
     }
 ?>
@@ -165,6 +163,56 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				})();
 				</script>
 				<?php if ($unplaced) { ?><p class="note">Also seen in (not on the universe layout): <?= $h(implode(', ', $unplaced)) ?></p><?php } ?>
+
+				<h3>Inferred routes</h3>
+				<?php if (count($stats['routes']) === 0) { ?>
+					<p class="note">No moves seen yet.</p>
+				<?php } else { ?>
+				<p class="note">Pilots rarely see more than 2-3 sectors of a flight, so routes are pieced together from all the chains, in all universes and at any time.
+					A route goes on through a sector when a chain was seen flying through it from the same direction, or when only one way on has ever been seen from it.
+					Where there is more than one way on and nothing to choose between them, the route stops there; more sightings will join them up.
+					<i>Italic</i> sectors are where pieces were joined without one chain seen all the way through. Hover a route to show it on the map.</p>
+				<table class="stats routes">
+					<tr><th>#</th><th>Route</th><th>Heading</th><th>Sectors</th><th>Moves seen</th><th>Universes</th></tr>
+					<?php foreach ($stats['routes'] as $i => $rt) {
+						$parts = [];
+						foreach ($rt['sectors'] as $k => $s) {
+							$name = '<a href="' . $h($sectorUrl($mapUni, $s)) . '">' . $h($s) . '</a>';
+							$parts[] = in_array($s, $rt['joined'], true) ? '<i title="pieces joined here">' . $name . '</i>' : $name;
+						}
+						$byUni = [];
+						foreach (Settings::UNIVERSE as $u) { if (isset($rt['unis'][$u])) { $byUni[] = $h($u) . ' ' . $rt['unis'][$u]; } }
+					?>
+					<tr class="fm-route" data-moves="<?= $h(implode(',', $rt['moves'])) ?>">
+						<td><?= $i + 1 ?></td>
+						<td class="l"><?= implode(' → ', $parts) ?><?= $rt['jumps'] ? ' <span title="includes a jump">(jump)</span>' : '' ?></td>
+						<td><?= $h($rt['heading'] ?? '-') ?></td>
+						<td><?= count($rt['sectors']) ?></td>
+						<td><?= $rt['seen'] ?></td>
+						<td><?= implode(', ', $byUni) ?></td>
+					</tr>
+					<?php } ?>
+				</table>
+				<script type="text/javascript">
+				// Hover a route to show only its arrows on the map
+				(function () {
+					var svg = document.getElementById('flightmap');
+					if (!svg) { return; }
+					var rows = document.querySelectorAll('tr.fm-route');
+					for (var i = 0; i < rows.length; i++) {
+						rows[i].addEventListener('mouseenter', function () {
+							var keys = this.getAttribute('data-moves').split(',');
+							svg.classList.add('fm-dim');
+							var moves = svg.querySelectorAll('.fm-move');
+							for (var j = 0; j < moves.length; j++) {
+								moves[j].classList.toggle('fm-hl', keys.indexOf(moves[j].getAttribute('data-move')) !== -1);
+							}
+						});
+						rows[i].addEventListener('mouseleave', function () { svg.classList.remove('fm-dim'); });
+					}
+				})();
+				</script>
+				<?php } ?>
 
 				<h3>Where jumps start</h3>
 				<?php if (count($flight['jumps']) === 0) { ?>
