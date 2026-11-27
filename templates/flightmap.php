@@ -57,7 +57,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last. After a longer gap it could have gone anywhere, so no arrow is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
-					A <b>jump</b> (dashed purple) is a move to a sector with no wormhole link in that short time: a teleport, or a sector nobody saw it cross.
+					A <b>jump</b> (dashed purple) is a move to a sector with no wormhole link in that short time: a teleport, or sectors nobody saw it cross (it crosses a sector in a few minutes).
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
@@ -115,8 +115,9 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 
         $byUni = [];
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
-        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
-            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']));
+        $label = sprintf('%s → %s (%s): seen %d time%s (%s), last %s%s', $m['from'], $m['to'], $m['type'] === 'flight' ? 'flight' : 'jump',
+            $m['count'], $m['count'] === 1 ? '' : 's', implode(', ', $byUni), $utcText((string) $m['last']),
+            $m['via'] ? '. Could have flown unseen via ' . implode(', ', $m['via']) : '');
         $moveKey = $h($m['from'] . '|' . $m['to']);
 
         if ($m['type'] === 'flight') {
@@ -171,6 +172,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				<p class="note">Pilots rarely see more than 2-3 sectors of a flight, so routes are pieced together from all the chains, in all universes and at any time.
 					A route goes on through a sector when a chain was seen flying through it from the same direction, or when only one way on has ever been seen from it.
 					Where there is more than one way on and nothing to choose between them, the route stops there; more sightings will join them up.
+					Jumps are not used to join routes (most are sectors nobody saw it cross), except out of a known teleport sector.
 					<i>Italic</i> sectors are where pieces were joined without one chain seen all the way through. Hover a route to show it on the map.</p>
 				<table class="stats routes">
 					<tr><th>#</th><th>Route</th><th>Heading</th><th>Sectors</th><th>Moves seen</th><th>Universes</th></tr>
@@ -261,13 +263,18 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				<?php if (count($flight['jumps']) === 0) { ?>
 					<p class="note">No jumps seen yet.</p>
 				<?php } else { ?>
-				<p class="note">Sectors the serpent left for a sector with no wormhole link. Teleport sectors should show up here repeatedly,
-					usually from the same tile; a one-off may just be a route nobody saw it take.</p>
+				<p class="note">Sectors the serpent left for a sector with no wormhole link, within <?= FlightPaths::LINK_WINDOW / 60 ?> minutes. It crosses a sector in a few minutes,
+					so most of these are sectors nobody saw it cross: where there is a short way round by wormholes, it is shown ("via").
+					Teleport sectors should show up here repeatedly, usually from the same tile, with no short way round.</p>
 				<table class="stats">
 					<tr><th>From</th><th>Jumps</th><th>Landed in</th><th>Last tile seen before jumping</th></tr>
 					<?php foreach ($flight['jumps'] as $from => $j) {
 						arsort($j['to']); arsort($j['tiles']);
-						$to = []; foreach (array_slice($j['to'], 0, 5, true) as $s => $n) { $to[] = $h($s) . ' ×' . $n; }
+						$to = [];
+						foreach (array_slice($j['to'], 0, 5, true) as $s => $n) {
+							$via = $flight['moves'][$from . '|' . $s]['via'] ?? null;
+							$to[] = $h($s) . ' ×' . $n . ($via ? ' <span style="color:#A1A1AF">(via ' . $h(implode(', ', $via)) . ')</span>' : ' <span class="live">(no short way round)</span>');
+						}
 						$tiles = []; foreach (array_slice($j['tiles'], 0, 3, true) as $t => $n) { $tiles[] = '[' . $h($t) . '] ×' . $n; }
 					?>
 					<tr>

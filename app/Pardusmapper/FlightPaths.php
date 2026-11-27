@@ -40,6 +40,9 @@ class FlightPaths
     /** Flybys in different sectors at most this many seconds apart are part of one chain. */
     public const LINK_WINDOW = 2700;
 
+    /** A jump that could have been this many unseen sectors or fewer is shown with that way round. */
+    public const MAX_UNSEEN = 5;
+
     /** Stop looking for more routes after this many (the graph is small; this is a safety net). */
     private const MAX_ROUTES = 60;
 
@@ -55,9 +58,13 @@ class FlightPaths
         $records = DB::npc_sightings(images: self::IMAGES, universe: $universe, nid: $nid);
 
         $adjacent = [];
+        $neighbours = []; // sector => [sector => true], for the unseen way round a jump
         $layout = UniverseMap::layout();
-        foreach ($layout['links'] as [$a, $b]) { $adjacent[UniverseMap::linkKey($a, $b)] = true; }
-        foreach (DB::wormhole_links() as [$a, $b]) { $adjacent[UniverseMap::linkKey($a, $b)] = true; }
+        foreach (array_merge($layout['links'], DB::wormhole_links()) as [$a, $b]) {
+            $adjacent[UniverseMap::linkKey($a, $b)] = true;
+            $neighbours[$a][$b] = true;
+            $neighbours[$b][$a] = true;
+        }
 
         $moves = [];
         $sectors = [];
@@ -137,6 +144,13 @@ class FlightPaths
 
         uasort($jumps, static fn ($a, $b) => $b['count'] <=> $a['count']);
 
+        // A jump is often just flying through sectors nobody saw (it crosses one in a few minutes):
+        // note the shortest way round by wormholes, if it is short.
+        foreach ($moves as &$m) {
+            $m['via'] = $m['type'] === 'jump' ? self::shortestWay($neighbours, $m['from'], $m['to'], self::MAX_UNSEEN) : null;
+        }
+        unset($m);
+
         return ['moves' => $moves, 'sectors' => $sectors, 'jumps' => $jumps, 'turns' => $turns,
                 'tracks' => self::tracks($trail),
                 'chains' => $chains, 'records' => count($records), 'flybys' => $flybys];
@@ -150,6 +164,34 @@ class FlightPaths
      *               'paths' => [[[x, y], ...], ...] (flybys seen on 2+ tiles, in order), 'tiles' => "x,y" => count]
      *               Directions with the most flybys first.
      */
+    /**
+     * The sectors in between on the shortest wormhole route from $from to $to, if it has at most
+     * $max of them; null if there is none that short.
+     */
+    private static function shortestWay(array $neighbours, string $from, string $to, int $max): ?array
+    {
+        $prev = [$from => null];
+        $queue = [$from];
+        while ($queue) {
+            $s = array_shift($queue);
+            if ($s === $to) {
+                $way = [];
+                for ($c = $prev[$to]; $c !== $from && !is_null($c); $c = $prev[$c]) {
+                    array_unshift($way, $c);
+                }
+                return count($way) <= $max ? $way : null;
+            }
+            foreach (array_keys($neighbours[$s] ?? []) as $n) {
+                if (!array_key_exists($n, $prev)) {
+                    $prev[$n] = $s;
+                    $queue[] = $n;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static function tracks(array $trail): array
     {
         $tracks = [];
@@ -199,16 +241,19 @@ class FlightPaths
      */
     public static function routes(array $flight, array $pos = []): array
     {
+        // Jumps are left out (most are flying through sectors nobody saw, and would join unrelated
+        // pieces), except out of a known teleport sector.
+        $pieces = array_filter($flight['moves'], static fn ($m) => $m['type'] === 'flight' || in_array($m['from'], self::KNOWN_TELEPORTS, true));
         $out = [];
         $in = [];
-        foreach ($flight['moves'] as $m) {
+        foreach ($pieces as $m) {
             $out[$m['from']][$m['to']] = true;
             $in[$m['to']][$m['from']] = true;
         }
         $turns = $flight['turns'];
 
         $found = [];
-        foreach ($flight['moves'] as $m) {
+        foreach ($pieces as $m) {
             foreach (self::forward([$m['from'], $m['to']], $out, $in, $turns) as $path) {
                 foreach (self::backward($path, $out, $in, $turns) as $full) {
                     $found[implode('|', $full)] = $full;
