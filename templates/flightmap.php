@@ -47,33 +47,39 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
     foreach ($stats['layout']['links'] as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
     foreach (DB::wormhole_links() as [$a, $b]) { $links[UniverseMap::linkKey($a, $b)] = [$a, $b]; }
 
-    $flights = 0; $teleports = 0; $unseen = 0;
+    $flights = 0; $teleports = 0; $possible = 0; $unseen = 0;
     foreach ($flight['moves'] as $m) {
         if ($m['type'] === 'flight') { $flights += $m['count']; continue; }
         $teleports += $m['exits']['teleport'];
+        $possible += $m['exits']['stuck'];
         $unseen += $m['exits']['wormhole'] + $m['exits']['unseen'] + $m['exits']['unknown'];
     }
 ?>
 				<p class="note">Based on <b><?= $flight['records'] ?></b> sightings, making <b><?= $flight['flybys'] ?></b> flyby<?= $flight['flybys'] === 1 ? '' : 's' ?>
 					and <b><?= $flight['chains'] ?></b> observed chain<?= $flight['chains'] === 1 ? '' : 's' ?> of 2 or more sectors:
-					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw, and <b><?= $teleports ?></b> teleport<?= $teleports === 1 ? '' : 's' ?>.</p>
+					<b><?= $flights ?></b> flight<?= $flights === 1 ? '' : 's' ?> between linked sectors, <b><?= $unseen ?></b> flight<?= $unseen === 1 ? '' : 's' ?> on through sectors nobody saw,
+					<b><?= $teleports ?></b> confirmed teleport<?= $teleports === 1 ? '' : 's' ?> and <b><?= $possible ?></b> possible teleport<?= $possible === 1 ? '' : 's' ?>.</p>
 				<p class="note">The serpent flies fast. Sightings in the same sector less than <?= FlightPaths::FLYBY_GAP / 60 ?> minutes apart are one <b>flyby</b>; later than that it has come round again.
 					A <b>chain</b> is what pilots saw of one flight: flybys in different sectors, each at most <?= FlightPaths::LINK_WINDOW / 60 ?> minutes after the last.
 					When the next sighting is <?= FlightPaths::LINK_WINDOW / 60 ?>-<?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later in another sector, the <b>likely route</b> in between is filled in (faint dots):
 					the shortest way along moves already seen, else by wormholes, if it could fly it in that time.
-					Not if it was stuck when last seen (see teleports below): then it teleported, and nothing is filled in.
-					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none'] + $gs['teleport']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?><?= $gs['teleport'] ? ', ' . $gs['teleport'] . ' teleport' . ($gs['teleport'] === 1 ? '' : 's') : '' ?>.)<?php } ?>
+					Not if it was stuck when last seen (see teleports below): then it may have teleported, and nothing is filled in.
+					<?php $gs = $flight['guesses']; if ($gs['seen'] + $gs['map'] + $gs['none'] + $gs['stuck']) { ?>(<?= $gs['seen'] + $gs['map'] ?> gap<?= ($gs['seen'] + $gs['map']) === 1 ? '' : 's' ?> filled in: <?= $gs['seen'] ?> along moves seen before, <?= $gs['map'] ?> by wormholes<?= $gs['none'] ? ', ' . $gs['none'] . ' with no way it could have flown in time' : '' ?><?= $gs['stuck'] ? ', ' . $gs['stuck'] . ' possible teleport' . ($gs['stuck'] === 1 ? '' : 's') : '' ?>.)<?php } ?>
 					More than <?= FlightPaths::EXTRAPOLATE_WINDOW / 60 ?> minutes later is a different flyby and route, and nothing is drawn.
 					The universes are copies and the serpent flies the same routes in each, so the arrows combine the chains of all universes and all times.
 					Each direction has its own arrow, and thicker arrows were seen more often.
-					A move to a sector with no wormhole link in that short time is a flight on through sectors nobody saw (<b>dotted orange</b>),
-					unless it was <b>stuck</b> when last seen: away from any wormhole, with impassable energy on the next tile in the direction it was heading. Then it <b>teleported</b> (<b>dashed purple</b>).
+					A <b>teleport</b> is only <b>confirmed</b> (<b>dashed purple</b>) when it was seen in the next sector sooner than it could have flown there at top speed
+					(<?= FlightPaths::FASTEST_SECTOR_TIME ?> s for each sector move by wormholes: 2 sectors away in under a minute), or there is no way to fly there at all.
+					A hop into a neighbouring sector can't be confirmed this way: a wormhole is instant.
+					A move to a sector with no wormhole link that it had time to fly is a flight on through sectors nobody saw (<b>dotted orange</b>),
+					unless it was <b>stuck</b> when last seen: away from any wormhole, with impassable energy on the next tile in the direction it was heading. That is a <b>possible teleport</b> (<b>dotted purple</b>).
 					Hover an arrow or sector for details. Times are your local time.</p>
 				<div class="legend">
 					<span><span class="sw" style="background:#ff8c1a"></span>Flight (linked sectors)</span>
 					<span><span class="sw" style="background:repeating-linear-gradient(90deg,rgba(255,140,26,0.55) 0 1px,transparent 1px 5px)"></span>Likely route (filled in, not seen)</span>
 					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#ff8c1a 0 2px,transparent 2px 5px)"></span>Flew on unseen</span>
-					<span><span class="sw" style="background:#b06cf0"></span>Teleport (stuck, then gone)</span>
+					<span><span class="sw" style="background:#b06cf0"></span>Teleport (too fast to have flown)</span>
+					<span><span class="sw" style="background:repeating-linear-gradient(90deg,#b06cf0 0 2px,transparent 2px 5px)"></span>Possible teleport (stuck, then gone)</span>
 					<span><span class="sw" style="border:2px solid #00e5ff"></span>Seen there now</span>
 					<span><span class="sw" style="border:2px dashed #b06cf0"></span>Known teleport sector</span>
 				</div>
@@ -128,7 +134,8 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
         $byUni = [];
         foreach ($m['unis'] as $u => $n) { $byUni[] = $u . ' ' . $n; }
         $isTeleport = $m['type'] === 'jump' && $m['exits']['teleport'] > 0;
-        $kind = $m['type'] === 'flight' ? 'flight' : ($isTeleport ? 'teleport' : 'flew on unseen');
+        $isPossible = $m['type'] === 'jump' && !$isTeleport && $m['exits']['stuck'] > 0;
+        $kind = $m['type'] === 'flight' ? 'flight' : ($isTeleport ? 'teleport: too fast to have flown' : ($isPossible ? 'possible teleport: stuck, then gone' : 'flew on unseen'));
         $guessedOnly = $m['count'] === 0;
         if ($guessedOnly) {
             $label = sprintf('%s → %s (likely route, not seen): filled in %d time%s between sightings %d-%d minutes apart',
@@ -148,8 +155,8 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
             // curve jumps so they stand apart from the wormhole network
             $cx = ($x1 + $x2) / 2 - $uy * $len * 0.18; $cy = ($y1 + $y2) / 2 + $ux * $len * 0.18;
             printf('<g class="fm-move %s" data-move="%s"><title%s>%s</title><path d="M%.1f %.1fQ%.1f %.1f %.1f %.1f" stroke-width="%.1f" marker-end="url(#%s)"/></g>',
-                $isTeleport ? 'fm-jump' : 'fm-unseen', $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width,
-                $isTeleport ? 'fm-arrow-jump' : 'fm-arrow-flight');
+                $isTeleport ? 'fm-jump' : ($isPossible ? 'fm-jump fm-maybe' : 'fm-unseen'), $moveKey, $utcAttr((string) $m['last']), $h($label), $x1, $y1, $cx, $cy, $x2, $y2, $width,
+                ($isTeleport || $isPossible) ? 'fm-arrow-jump' : 'fm-arrow-flight');
         }
     }
 ?>
@@ -285,12 +292,13 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 				<?php if (count($flight['jumps']) === 0) { ?>
 					<p class="note">No jumps seen yet.</p>
 				<?php } else { ?>
-				<p class="note">Sectors the serpent left for a sector with no wormhole link, within <?= FlightPaths::LINK_WINDOW / 60 ?> minutes.
-					Last seen on or next to a wormhole: it <b>left by the wormhole</b> and flew on through sectors nobody saw (the shortest way on is shown as "via").
-					Stuck away from any wormhole, with impassable energy on the next tile in the direction it was heading: it <b>teleported</b>.
-					Anywhere else it just <b>went out of view</b>, probably flying on to a wormhole unseen; that is not counted as a teleport.</p>
+				<p class="note">Sectors the serpent left for a sector with no wormhole link, or got to faster than it could have flown.
+					Seen there sooner than the quickest possible flight: a <b>confirmed teleport</b>.
+					Otherwise: last seen on or next to a wormhole, it <b>left by the wormhole</b> and flew on through sectors nobody saw (the shortest way on is shown as "via");
+					stuck away from any wormhole, with impassable energy on the next tile in the direction it was heading, a <b>possible teleport</b> (it had time to fly, so it can't be confirmed);
+					anywhere else it just <b>went out of view</b>, probably flying on to a wormhole unseen.</p>
 				<table class="stats">
-					<tr><th>From</th><th>Teleports</th><th>Left by a<br />wormhole</th><th>Went out<br />of view</th><th>Landed in</th><th>Tiles last seen before leaving</th></tr>
+					<tr><th>From</th><th>Teleports</th><th>Possible<br />teleports</th><th>Left by a<br />wormhole</th><th>Went out<br />of view</th><th>Landed in</th><th>Tiles last seen before leaving</th></tr>
 					<?php foreach ($flight['jumps'] as $from => $j) {
 						arsort($j['to']);
 						uasort($j['tiles'], static fn ($a, $b) => $b['n'] <=> $a['n']);
@@ -302,7 +310,8 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 						$tiles = [];
 						foreach (array_slice($j['tiles'], 0, 4, true) as $t => $tl) {
 							$where = match ($tl['how']) {
-								'teleport' => sprintf('stuck, %d tiles from a wormhole', $tl['dist']),
+								'teleport' => is_null($tl['min']) ? 'no way to fly there' : sprintf('seen after %d s, flying takes at least %d s', $tl['gap'], $tl['min']),
+								'stuck' => sprintf('stuck, %d tiles from a wormhole', $tl['dist']),
 								'wormhole' => $tl['dist'] === 0 ? 'on a wormhole' : 'next to a wormhole',
 								'unseen' => sprintf('out of view, %d tiles from a wormhole', $tl['dist']),
 								default => 'no wormhole mapped in this sector',
@@ -313,6 +322,7 @@ $unplaced = array_diff(array_keys($flight['sectors']), $visited);
 					<tr>
 						<td class="l"><a href="<?= $h($sectorUrl($mapUni, (string) $from)) ?>"><?= $h($from) ?></a><?= in_array($from, FlightPaths::KNOWN_TELEPORTS, true) ? ' <span class="live">known teleport</span>' : '' ?></td>
 						<td><?= $j['teleport'] ? '<span class="live">' . $j['teleport'] . '</span>' : '0' ?></td>
+						<td><?= $j['stuck'] ?></td>
 						<td><?= $j['wormhole'] ?></td>
 						<td><?= $j['unseen'] ?><?= $j['unknown'] ? ' <span title="no wormhole mapped in this sector, so it can\'t be told">(+' . $j['unknown'] . ' ?)</span>' : '' ?></td>
 						<td class="l"><?= implode(', ', $to) ?></td>

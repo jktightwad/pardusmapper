@@ -1037,7 +1037,7 @@ class DB
      * wormholes table (the universes share their layout).
      *
      * @param array $sectors sector names
-     * @return array sector => list of [x, y]
+     * @return array sector => list of [x, y, target sector ('' if not known)]
      */
     public static function wormhole_tiles(array $sectors): array
     {
@@ -1048,19 +1048,26 @@ class DB
 
         $db = MySqlDB::instance();
         $in = implode(',', array_fill(0, count($sectors), '?'));
-        $db->execute(sprintf("SELECT sector, x, y FROM Orion_Maps WHERE sector IN (%s)
+        $db->execute(sprintf("SELECT sector, x, y, wormhole AS target FROM Orion_Maps WHERE sector IN (%s)
                 AND ((wormhole IS NOT NULL AND wormhole <> '') OR fg LIKE '%%wormhole%%' OR fg LIKE '%%xhole%%' OR fg LIKE '%%yhole%%')", $in),
             array_merge([str_repeat('s', count($sectors))], $sectors));
 
         $tiles = [];
+        $add = static function (object $row) use (&$tiles): void {
+            $key = (int) $row->x . ',' . (int) $row->y;
+            $target = (string) ($row->target ?? '');
+            if (!isset($tiles[(string) $row->sector][$key]) || $tiles[(string) $row->sector][$key][2] === '') {
+                $tiles[(string) $row->sector][$key] = [(int) $row->x, (int) $row->y, $target];
+            }
+        };
         while ($row = $db->fetchObject()) {
-            $tiles[(string) $row->sector][(int) $row->x . ',' . (int) $row->y] = [(int) $row->x, (int) $row->y];
+            $add($row);
         }
         try {
             // and the wormholes table, where it exists (same coordinates)
-            $db->execute(sprintf('SELECT sector, x, y FROM wormholes WHERE sector IN (%s)', $in), array_merge([str_repeat('s', count($sectors))], $sectors));
+            $db->execute(sprintf('SELECT sector, x, y, target FROM wormholes WHERE sector IN (%s)', $in), array_merge([str_repeat('s', count($sectors))], $sectors));
             while ($row = $db->fetchObject()) {
-                $tiles[(string) $row->sector][(int) $row->x . ',' . (int) $row->y] = [(int) $row->x, (int) $row->y];
+                $add($row);
             }
         } catch (\Throwable) {
             // no wormholes table here

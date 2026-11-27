@@ -150,6 +150,7 @@ $legend .= '<span><span class="sw" style="background:#ffe14d"></span>NPC sightin
 			#stats svg.fm-dim .fm-hl line, #stats svg.fm-dim .fm-hl path { stroke: #fff; opacity: 1; }
 			#stats tr.fm-route:hover td { background: rgba(255,140,26,0.15); }
 			#stats svg .fm-jump path { stroke: #b06cf0; fill: none; stroke-dasharray: 8 5; opacity: 0.85; }
+			#stats svg .fm-maybe path { stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.7; }
 			#stats svg .fm-guess line { stroke-dasharray: 1 5; stroke-linecap: round; opacity: 0.55; }
 			#stats svg .fm-unseen path { stroke: #ff8c1a; fill: none; stroke-dasharray: 2 4; stroke-linecap: round; opacity: 0.85; }
 			#stats svg .fm-move:hover line, #stats svg .fm-move:hover path { opacity: 1; stroke: #fff; }
