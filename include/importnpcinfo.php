@@ -32,6 +32,9 @@ http_response(is_null($loc), ApiResponse::OK, sprintf('loc query parameter is re
 
 $image = Request::pstring(key: 'img');
 $nid = Request::pint(key: 'nid');
+if (!is_null($nid) && $nid <= 0) {
+    $nid = null; // 0 means the script couldn't read an ID, it is not a real one
+}
 $dead = Request::pbool('dead');
 
 // Set Hull, Armor, Shield Levels

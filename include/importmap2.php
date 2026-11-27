@@ -365,7 +365,8 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
             $npc = $temp[$r_npc];
             // An nID only ever comes from the pilot's own tile (the Other Ships list). Never take one
             // for any other tile: an NPC must not get another NPC's ID from a remote observation.
-            $nid = ($id == $loc && isset($temp[2]) && ctype_digit((string) $temp[2])) ? (int) $temp[2] : null;
+            // (0 means the script couldn't read an ID, it is not a real one)
+            $nid = ($id == $loc && isset($temp[2]) && ctype_digit((string) $temp[2]) && (int) $temp[2] > 0) ? (int) $temp[2] : null;
 
             // a building is recorded here and the NPC came without an ID: keep the building, skip the NPC
             // (a hole monster's tile always has its hole recorded, so that doesn't count as a building)
