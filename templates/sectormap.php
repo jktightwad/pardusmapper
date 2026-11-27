@@ -208,7 +208,9 @@ declare(strict_types=1);
 				if ($security==100){
 					echo '<form id="wh" action="" style="display:inline;"><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH<input type="radio" onclick="updateMap()" name="mode" value="1" />Remove WH</form>';
 				} else {
-					echo '<form id="wh" action="" style="display:inline;"><input type="radio" onclick="updateMap()" name="mode" value="0" checked />Navigate WH</form>';
+					// Non-admins only ever navigate wormholes, so there is no choice to show. Keep the (hidden)
+					// field so updateMap() still sends whole=0.
+					echo '<form id="wh" action="" style="display:none;"><input type="radio" name="mode" value="0" checked /></form>';
 				}
 				?>
 			</div>
