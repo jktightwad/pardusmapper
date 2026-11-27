@@ -44,8 +44,12 @@ foreach ($sector as $key => $s) {
         $return .= '<a href="' . $base_url . '/' . $uni . '/' . $s->name . '">' . $s->name . '</a>';
     $return .= '</td>';
     $return .= '<td align="center">';
-        //$return .= $s->c_name;
-        $return .= '<a href="' . $base_url . '/' . $uni . '/' . $s->c_name . '">'. $s->c_name . '</a>';
+        // cluster pages are at /{Universe}/{CODE} (e.g. /Pegasus/GAP); the cluster's name would be
+        // taken for a sector
+        $code = strtoupper((string) $s->cluster);
+        $return .= $code !== ''
+            ? '<a href="' . $base_url . '/' . $uni . '/' . htmlspecialchars($code) . '">' . htmlspecialchars((string) $s->c_name) . '</a>'
+            : htmlspecialchars((string) $s->c_name);
     $return .= '</td>';
 
     $return .= '</tr>';
