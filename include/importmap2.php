@@ -368,7 +368,8 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
             $nid = ($id == $loc && isset($temp[2]) && ctype_digit((string) $temp[2])) ? (int) $temp[2] : null;
 
             // a building is recorded here and the NPC came without an ID: keep the building, skip the NPC
-            if (is_null($r->npc) && !is_null($r->fg) && is_null($nid)) {
+            // (a hole monster's tile always has its hole recorded, so that doesn't count as a building)
+            if (is_null($r->npc) && !is_null($r->fg) && is_null($nid) && str_starts_with($npc, 'opponents/')) {
                 debug($id . ' NPC seen on a building tile without an nID, skipping');
             } else {
                 if (in_array($npc, $single) && $r->npc != $npc) {
@@ -400,6 +401,11 @@ for ($i = 1; $i < sizeof($maparray); $i++) { //Not the tiles the ship is on idea
                 }
                 //}
             }
+        }
+        // A wormhole / X hole sent with its destination is the plain hole (a hole monster on it is
+        // sent as an NPC without one), so no NPC is shown on that tile either.
+        $plainHole = $r_fg != 0 && sizeof($temp) == 3 && NPC::is_npc_image((string) $temp[1]) && !str_starts_with((string) $temp[1], 'opponents/');
+        if ($r_bg != 0 || $plainHole) {
             if (!(is_null($r->npc))) { // NPCs are recorded here but the tile shows none
                 if ($id == $loc) {
                     // The pilot is on this tile and sees no NPC: nothing is here, cloaked or not.

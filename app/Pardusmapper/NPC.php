@@ -181,12 +181,20 @@ class NPC{
     ];
 
     /**
-     * Only Vyrex and Pirates share a tile with another NPC; Vyrex can also stack (many of the same
-     * type on one tile). Any other NPC seen on a tile replaces the non-sharing NPC recorded there.
+     * NPCs that can be on the same tile as another NPC: Vyrex (they also stack, many of the same
+     * type on one tile), Pirates (invasions), and the random spawns Wormhole / X Hole Monsters
+     * (drawn with their hole's image) and Exocrabs. Any other NPC seen on a tile replaces the
+     * non-sharing NPC recorded there.
      */
     public static function shares_tile(string $image): bool
     {
-        return (bool) preg_match('#^opponents/(vyrex_|pirate_)#', $image);
+        return (bool) preg_match('#^(opponents/(vyrex_|pirate_|exocrab\.png$)|foregrounds/[xy]?(worm)?hole\.png$)#', $image);
+    }
+
+    /** Images an NPC can have: opponents/*, or a hole monster drawn with its hole's image. */
+    public static function is_npc_image(string $image): bool
+    {
+        return str_starts_with($image, 'opponents/') || (bool) preg_match('#^foregrounds/[xy]?(worm)?hole\.png$#', $image);
     }
 
     /**

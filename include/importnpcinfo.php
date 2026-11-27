@@ -5,6 +5,7 @@ use Pardusmapper\Core\ApiResponse;
 use Pardusmapper\Core\MySqlDB;
 use Pardusmapper\CORS;
 use Pardusmapper\DB;
+use Pardusmapper\NPC;
 use Pardusmapper\Request;
 
 require_once('../app/settings.php');
@@ -38,7 +39,7 @@ $hull = Request::pint(key: 'hull', default: 0);
 $armor = Request::pint(key: 'armor', default: 0);
 $shield = Request::pint(key: 'shield', default: 0);
 
-http_response(is_null($image) || !str_starts_with($image, 'opponents/'), ApiResponse::OK, sprintf('img query parameter is required or invalid: %s', $image ?? 'null'));
+http_response(is_null($image) || !NPC::is_npc_image($image),ApiResponse::OK, sprintf('img query parameter is required or invalid: %s', $image ?? 'null'));
 
 // The pilot is on the tile fighting this NPC, so this is a direct sighting: find (or add) the
 // record of this NPC only. Other NPCs on the tile (a Vyrex stack, a cloaked Vyrex) are left alone,
