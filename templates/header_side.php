@@ -7,7 +7,11 @@ declare(strict_types=1);
 	<?php 
 		echo '<tr><td><a href="' . $base_url . '">Change Universe</a></td></tr>';
 		if (isset($_REQUEST['uni'])) {echo '<tr><th><a href="' . $base_url . '/' . $_REQUEST['uni'] . '">' . $_REQUEST['uni'] . '</a></th></tr>';}
-		if (!(isset($_REQUEST['sector']) || isset($_REQUEST['cluster']))) {echo '<tr><td><a href=# onClick="getSectors(\'' . $_REQUEST['uni'] . '\');return false;">Sector<br />List</a></td></tr>';}
+		// Sector List / Gem Merchant List load in place on the universe map (templates/map.php defines
+		// getSectors/getGemMerchant). Other pages (NPC List, Mission List, Options...) don't have those
+		// functions, so the link falls back to the universe map, which opens the list on load.
+		$menu_uni = htmlspecialchars((string) ($_REQUEST['uni'] ?? ''), ENT_QUOTES);
+		if (!(isset($_REQUEST['sector']) || isset($_REQUEST['cluster']))) {echo '<tr><td><a href="' . $base_url . '/index.php?uni=' . $menu_uni . '&amp;sectors=1" onClick="if (typeof getSectors === \'function\') { getSectors(\'' . $menu_uni . '\'); return false; }">Sector<br />List</a></td></tr>';}
 		if (isset($_REQUEST['cluster'])) { echo '<tr><th><a href="' . $base_url . '/' . $_REQUEST['uni'] . '/' . $_REQUEST['cluster'] . '">' . $_REQUEST['cluster'] . '</a></th></tr>'; }
 		if (isset($_REQUEST['sector'])) {
 			// Ensure $cluster is a string and handle null or object cases
@@ -63,7 +67,7 @@ declare(strict_types=1);
 		}
 		
 		if (!(isset($_REQUEST['sector']) || isset($_REQUEST['cluster']))) {
-			echo '<tr><td><a href=# onClick="getGemMerchant(\'' . $_REQUEST['uni'] . '\');return false;">Gem<br />Merchant<br />List</a></td></tr>';
+			echo '<tr><td><a href="' . $base_url . '/' . $menu_uni . '/gems" onClick="if (typeof getGemMerchant === \'function\') { getGemMerchant(\'' . $menu_uni . '\'); return false; }">Gem<br />Merchant<br />List</a></td></tr>';
 		}
 		if (!isset($_SESSION['user'])) { echo '<tr><td><a href="' . $base_url . '/' . $_REQUEST['uni']. '/login.php">Log In</a></td></tr>'; }
 		else { echo '<tr><td><a href="' . $base_url . '/' . $_REQUEST['uni'] . '/logout.php">Log Out</a></td></tr>'; }

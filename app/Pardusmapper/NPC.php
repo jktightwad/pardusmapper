@@ -84,6 +84,7 @@ class NPC{
         'opponents/shadow.png' => 'Shadow',
         'opponents/hidden_drug_stash.png' => 'Hidden Drug Stash',
         'opponents/cyborg_corebreaker.png' => 'Cyborg Corebreaker',
+        'opponents/pirate_captain.png' => 'Pirate Captain',
     ];
 
     public const SINGLE = [

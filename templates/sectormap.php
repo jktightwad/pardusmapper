@@ -122,7 +122,7 @@ declare(strict_types=1);
 				</form>
 				<?php if (isset($_SESSION['user'])) { ?>
 				<form id="history_toggle" action="" style="display:inline; margin-left: 10px; border-left: 1px solid #666; padding-left: 10px;">
-					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> <span title="Feral Serpent, Shadow, Hidden Drug Stash and Cyborg Corebreaker sightings from Orion, Artemis and Pegasus combined">Show Rare NPC History (all universes)</span>
+					<input type="checkbox" id="hist" onclick="updateMap()" name="history" value="1" /> <span title="Feral Serpent, Shadow, Hidden Drug Stash, Cyborg Corebreaker and Pirate Captain sightings from Orion, Artemis and Pegasus combined">Show Rare NPC History (all universes)</span>
 				</form>
 				<?php } ?>
 				<?php
