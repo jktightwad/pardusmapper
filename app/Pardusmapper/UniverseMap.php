@@ -42,6 +42,7 @@ class UniverseMap
         $boxes = self::clusterBoxes();
         $sectors = [];
         $links = [];
+        $dangling = []; // connectors that run off their cluster's grid
 
         // Some cluster templates spell a sector with different capitals ("Epsilon eridani",
         // "Delta pavonis"); use the real sector names so they match the sightings.
@@ -91,13 +92,73 @@ class UniverseMap
                             $a = $name($cell['name']);
                             $b = $name($other['name']);
                             $links[self::linkKey($a, $b)] = [$a, $b];
+                        } else {
+                            // runs off the cluster: a wormhole to another cluster, paired up below
+                            $sec = $sectors[$name($cell['name'])];
+                            $dangling[] = ['name' => $name($cell['name']), 'cluster' => $code, 'x' => $sec['x'], 'y' => $sec['y'], 'dx' => $dc, 'dy' => $dr];
                         }
                     }
                 }
             }
         }
 
+        foreach (self::pairDangling($dangling) as [$a, $b]) {
+            $links[self::linkKey($a, $b)] = [$a, $b];
+        }
+
         return self::$cache = ['sectors' => $sectors, 'links' => array_values($links)];
+    }
+
+    /** Furthest apart (universe-map units) two connectors can be and still be paired. */
+    private const MAX_PAIR_DISTANCE = 120 * self::SCALE;
+
+    /**
+     * Pair up connectors that run off their cluster's grid: these are wormholes to a neighbouring
+     * cluster, which the templates don't name. A connector pairs with one in another cluster that
+     * lies ahead of it and points back towards it; the closest, best-aligned pairs are taken first,
+     * each connector at most once.
+     *
+     * @param array $dangling list of ['name','cluster','x','y','dx','dy']
+     * @return array list of [sectorA, sectorB]
+     */
+    private static function pairDangling(array $dangling): array
+    {
+        $candidates = [];
+        foreach ($dangling as $i => $a) {
+            $la = hypot($a['dx'], $a['dy']);
+            foreach ($dangling as $j => $b) {
+                if ($j <= $i || $a['cluster'] === $b['cluster']) {
+                    continue;
+                }
+                $vx = $b['x'] - $a['x'];
+                $vy = $b['y'] - $a['y'];
+                $dist = hypot($vx, $vy);
+                if ($dist < 1 || $dist > self::MAX_PAIR_DISTANCE) {
+                    continue;
+                }
+                $lb = hypot($b['dx'], $b['dy']);
+                // how well each connector points at the other (1 = straight at it)
+                $aim = ($vx * $a['dx'] + $vy * $a['dy']) / ($dist * $la);
+                $back = -($vx * $b['dx'] + $vy * $b['dy']) / ($dist * $lb);
+                if ($aim < 0.5 || $back < 0.5) {
+                    continue;
+                }
+                $candidates[] = [$dist * (3 - $aim - $back), $i, $j];
+            }
+        }
+        usort($candidates, static fn ($p, $q) => $p[0] <=> $q[0]);
+
+        $used = [];
+        $pairs = [];
+        foreach ($candidates as [, $i, $j]) {
+            if (isset($used[$i]) || isset($used[$j])) {
+                continue;
+            }
+            $used[$i] = $used[$j] = true;
+            $pairs[] = [$dangling[$i]['name'], $dangling[$j]['name']];
+        }
+
+        return $pairs;
     }
 
     /** Undirected key for a pair of sectors. */
