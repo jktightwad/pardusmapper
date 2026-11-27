@@ -87,6 +87,22 @@ class NPC{
         'opponents/pirate_captain.png' => 'Pirate Captain',
     ];
 
+    /**
+     * Tracked NPCs grouped by display name: slug => ['name' => ..., 'images' => [...]]
+     * (Feral Serpent variants share one entry). Used by the Rare NPC Stats page.
+     */
+    public static function history_groups(): array
+    {
+        $groups = [];
+        foreach (self::HISTORY as $image => $name) {
+            $slug = strtolower(preg_replace('/[^A-Za-z0-9]+/', '_', $name));
+            $groups[$slug]['name'] = $name;
+            $groups[$slug]['images'][] = $image;
+        }
+
+        return $groups;
+    }
+
     public const SINGLE = [
         'opponents/shadow.png',
         'opponents/feral_serpent.png',

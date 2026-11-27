@@ -898,6 +898,92 @@ class DB
     }
 
     /**
+     * Grid size of several sectors in one query.
+     *
+     * @param array $names sector names
+     * @return array sector name => object(name, rows, cols, c_id)
+     */
+    public static function sector_dims(array $names): array
+    {
+        $names = array_values(array_unique(array_filter($names, 'is_string')));
+        if (count($names) === 0) {
+            return [];
+        }
+
+        $db = MySqlDB::instance();
+        $db->execute(
+            sprintf('SELECT name, rows, cols, c_id FROM Pardus_Sectors WHERE name IN (%s)', implode(',', array_fill(0, count($names), '?'))),
+            array_merge([str_repeat('s', count($names))], $names)
+        );
+
+        $dims = [];
+        while ($row = $db->fetchObject()) {
+            $dims[$row->name] = $row;
+        }
+
+        return $dims;
+    }
+
+    /**
+     * Raw sightings of the given NPC images across universes, oldest first.
+     *
+     * Uses the image_nid (image, nid) index on {Universe}_Test_Npcs, so it only touches the
+     * tracked rows (a few thousand) rather than the millions of other NPC sightings.
+     *
+     * @param array $images NPC images (see NPC::HISTORY)
+     * @param string|null $universe limit to one universe
+     * @param int|null $nid limit to one NPC id (requires $universe)
+     * @return array list of objects: uni, nid, sector, x, y, image, spotted, last_seen, active
+     */
+    public static function npc_sightings(array $images, ?string $universe = null, ?int $nid = null): array
+    {
+        if (count($images) === 0) {
+            return [];
+        }
+
+        $universes = Settings::UNIVERSE;
+        if (!is_null($universe)) {
+            if (!in_array($universe, $universes, true)) {
+                return [];
+            }
+            $universes = [$universe];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($images), '?'));
+        $parts = [];
+        $params = [''];
+        foreach ($universes as $u) {
+            $sql = sprintf(
+                "SELECT '%s' AS uni, nid, sector, x, y, image, spotted,
+                        COALESCE(updated, spotted) AS last_seen,
+                        CASE WHEN deleted IS NULL OR deleted = 0 THEN 1 ELSE 0 END AS active
+                FROM %s_Test_Npcs
+                WHERE image IN (%s) AND sector IS NOT NULL",
+                $u, $u, $placeholders
+            );
+            $params[0] .= str_repeat('s', count($images));
+            array_push($params, ...array_values($images));
+
+            if (!is_null($nid)) {
+                $sql .= ' AND nid = ?';
+                $params[0] .= 'i';
+                $params[] = $nid;
+            }
+            $parts[] = $sql;
+        }
+
+        $db = MySqlDB::instance();
+        $db->execute(implode(' UNION ALL ', $parts) . ' ORDER BY spotted', $params);
+
+        $rows = [];
+        while ($row = $db->fetchObject()) {
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
+    /**
      * Remove NPC
      *
      * @param string $universe

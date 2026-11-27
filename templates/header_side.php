@@ -57,6 +57,9 @@ declare(strict_types=1);
 		echo (isset($_REQUEST['x1']) && isset($_REQUEST['y1'])) ? '/' . $_REQUEST['x1'] . '/' . $_REQUEST['y1'] : '';
 		echo '/mission">Mission<br />List</a></td></tr>';
 						
+		// Rare NPC Stats (contributors only; the page itself enforces that)
+		echo '<tr><td><a href="' . $base_url . '/' . $menu_uni . '/npcstats">Rare NPC<br />Stats</a></td></tr>';
+
 		if (isset($_SESSION['security']) && $_SESSION['security'] == 100) {
 			// Set Owner Link
 			echo '<tr><td><a href="' . $base_url;

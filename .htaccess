@@ -15,6 +15,7 @@ RewriteRule ^(Orion|Artemis|Pegasus)/mission/?$ mission.php?uni=$1 [B,QSA,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/npc/?$ npc.php?uni=$1 [B,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/info/?$ info/information.php?uni=$1 [B,L]
 RewriteRule ^(Orion|Artemis|Pegasus)/gems/?$ index.php?uni=$1&gems=1 [B,L]
+RewriteRule ^(Orion|Artemis|Pegasus)/npcstats/?$ npcstats.php?uni=$1 [B,QSA,L]
 RewriteCond %{REQUEST_METHOD} GET
 RewriteRule ^(Orion|Artemis|Pegasus)/download/?$ Download/download.php?uni=$1 [B,QSA,L]
 ## Cluster Listings Grouping
