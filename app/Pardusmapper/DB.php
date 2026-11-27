@@ -959,11 +959,18 @@ class DB
      * Sector-to-sector wormhole links recorded on the Orion map (the universes share their layout).
      * Scanning the map table is not cheap, so the result is cached in the system temp folder for a day.
      *
+     * - From the Orion map's `wormhole` column and the `wormholes` table combined (each has links the
+     *   other lacks). A wormhole names the sector it leads to; names are matched to the real
+     *   sector names (any capitals); anything that isn't a sector ("Wormhole not yet open") is skipped.
+     * - Wormholes within one sector (Pardus has some, to cross its impassable areas) are skipped:
+     *   they don't link sectors.
+     * - X holes ("xhole") are linked to each other; Y holes ("yhole") lead out of the Core to them.
+     *
      * @return array list of [sector, target sector]
      */
     public static function wormhole_links(): array
     {
-        $cache = sys_get_temp_dir() . '/pardusmapper_wormhole_links.json';
+        $cache = sys_get_temp_dir() . '/pardusmapper_wormhole_links_v2.json';
         if (is_file($cache) && (time() - (int) filemtime($cache)) < 86400) {
             $links = json_decode((string) file_get_contents($cache), true);
             if (is_array($links)) {
@@ -972,20 +979,62 @@ class DB
         }
 
         $db = MySqlDB::instance();
-        $db->execute("SELECT DISTINCT sector, wormhole FROM Orion_Maps WHERE wormhole IS NOT NULL AND wormhole <> '' AND sector IS NOT NULL");
-
-        $links = [];
+        $names = [];
+        $db->execute('SELECT name FROM Pardus_Sectors');
         while ($row = $db->fetchObject()) {
-            $links[] = [(string) $row->sector, (string) $row->wormhole];
+            $names[strtolower((string) $row->name)] = (string) $row->name;
         }
+
+        // Two sources, combined (each has some links the other lacks): the Orion map, and the
+        // wormholes table (where it exists).
+        $rows = [];
+        $db->execute("SELECT DISTINCT sector, wormhole FROM Orion_Maps WHERE wormhole IS NOT NULL AND wormhole <> '' AND sector IS NOT NULL");
+        while ($row = $db->fetchObject()) {
+            $rows[] = $row;
+        }
+        try {
+            $db->execute('SELECT DISTINCT sector, target AS wormhole FROM wormholes');
+            while ($row = $db->fetchObject()) {
+                $rows[] = $row;
+            }
+        } catch (\Throwable) {
+            // no wormholes table here
+        }
+
+        $pairs = [];
+        $xholes = [];
+        $yholes = [];
+        foreach ($rows as $row) {
+            $from = $names[strtolower((string) $row->sector)] ?? null;
+            $to = strtolower(trim((string) $row->wormhole));
+            if (is_null($from)) {
+                continue;
+            }
+            if ($to === 'xhole') {
+                $xholes[$from] = true;
+            } elseif ($to === 'yhole') {
+                $yholes[$from] = true;
+            } elseif (isset($names[$to]) && $names[$to] !== $from) {
+                $pairs[$from . '|' . $names[$to]] = [$from, $names[$to]];
+            }
+        }
+        foreach (array_keys($xholes) as $x) {
+            foreach (array_keys($xholes) as $other) {
+                if ($x !== $other) { $pairs[$x . '|' . $other] = [$x, $other]; }
+            }
+            foreach (array_keys($yholes) as $y) {
+                $pairs[$y . '|' . $x] = [$y, $x];
+            }
+        }
+        $links = array_values($pairs);
         @file_put_contents($cache, json_encode($links));
 
         return $links;
     }
 
     /**
-     * Wormhole tiles (wormholes, X and Y holes) in the given sectors, from the Orion map (the
-     * universes share their layout).
+     * Wormhole tiles (wormholes, X and Y holes) in the given sectors, from the Orion map and the
+     * wormholes table (the universes share their layout).
      *
      * @param array $sectors sector names
      * @return array sector => list of [x, y]
@@ -1005,10 +1054,19 @@ class DB
 
         $tiles = [];
         while ($row = $db->fetchObject()) {
-            $tiles[(string) $row->sector][] = [(int) $row->x, (int) $row->y];
+            $tiles[(string) $row->sector][(int) $row->x . ',' . (int) $row->y] = [(int) $row->x, (int) $row->y];
+        }
+        try {
+            // and the wormholes table, where it exists (same coordinates)
+            $db->execute(sprintf('SELECT sector, x, y FROM wormholes WHERE sector IN (%s)', $in), array_merge([str_repeat('s', count($sectors))], $sectors));
+            while ($row = $db->fetchObject()) {
+                $tiles[(string) $row->sector][(int) $row->x . ',' . (int) $row->y] = [(int) $row->x, (int) $row->y];
+            }
+        } catch (\Throwable) {
+            // no wormholes table here
         }
 
-        return $tiles;
+        return array_map('array_values', $tiles);
     }
 
     /**
